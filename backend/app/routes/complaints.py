@@ -1,0 +1,1148 @@
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from app.config.supabase import supabase
+from app.utils.security import get_current_user, require_role
+
+
+router = APIRouter(
+    prefix="/api/complaints",
+    tags=["Complaints"],
+)
+
+
+# ============================================================
+# REQUEST SCHEMAS
+# ============================================================
+
+class ComplaintCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+
+    category_id: Optional[str] = None
+    photo_url: Optional[str] = None
+
+    latitude: float
+    longitude: float
+
+    address: Optional[str] = None
+    priority: str = "Normal"
+
+
+class ComplaintStatusUpdate(BaseModel):
+    status: str
+    remarks: Optional[str] = None
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def generate_complaint_code() -> str:
+    timestamp = datetime.now(timezone.utc).strftime(
+        "%Y%m%d%H%M%S%f"
+    )
+
+    return f"CMP-{timestamp}"
+
+
+def get_complaint_for_user(
+    complaint_id: str,
+    current_user: dict,
+):
+    """
+    Fetch a complaint and verify that the current user
+    is allowed to access it.
+    """
+
+    response = (
+        supabase
+        .table("complaints")
+        .select(
+            """
+            *,
+            categories (
+                id,
+                name,
+                description
+            ),
+            workers (
+                id,
+                worker_code,
+                department,
+                specialization,
+                user_id
+            )
+            """
+        )
+        .eq("id", complaint_id)
+        .limit(1)
+        .execute()
+    )
+
+    if not response.data:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found.",
+        )
+
+    complaint = response.data[0]
+
+    # Citizen can only view their own complaint
+    if current_user["role"] == "citizen":
+        if complaint["citizen_id"] != current_user["id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not allowed to view this complaint.",
+            )
+
+    return complaint
+
+
+# ============================================================
+# CREATE COMPLAINT
+# ============================================================
+
+@router.post("/")
+def create_complaint(
+    complaint: ComplaintCreate,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """
+    Create a complaint for the currently authenticated citizen.
+
+    citizen_id is NOT accepted from the frontend.
+    It is taken from the authenticated JWT/user.
+    """
+
+    try:
+        citizen_id = current_user["id"]
+
+        # Validate priority
+        allowed_priorities = {
+            "Low",
+            "Normal",
+            "High",
+            "Critical",
+        }
+
+        if complaint.priority not in allowed_priorities:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid priority. Allowed values: "
+                    "Low, Normal, High, Critical."
+                ),
+            )
+
+        # Validate category if provided
+        if complaint.category_id:
+            category_response = (
+                supabase
+                .table("categories")
+                .select("id")
+                .eq("id", complaint.category_id)
+                .limit(1)
+                .execute()
+            )
+
+            if not category_response.data:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid category_id.",
+                )
+
+        complaint_code = generate_complaint_code()
+
+        complaint_data = {
+            "complaint_code": complaint_code,
+            "citizen_id": citizen_id,
+            "title": complaint.title.strip(),
+            "description": complaint.description.strip(),
+            "category_id": complaint.category_id,
+            "photo_url": complaint.photo_url,
+            "latitude": complaint.latitude,
+            "longitude": complaint.longitude,
+            "address": complaint.address,
+            "status": "Submitted",
+            "priority": complaint.priority,
+        }
+
+        response = (
+            supabase
+            .table("complaints")
+            .insert(complaint_data)
+            .execute()
+        )
+
+        if not response.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Complaint could not be created.",
+            )
+
+        created_complaint = response.data[0]
+
+        # Add initial status history
+        try:
+            supabase.table(
+                "complaint_status_history"
+            ).insert(
+                {
+                    "complaint_id": created_complaint["id"],
+                    "old_status": None,
+                    "new_status": "Submitted",
+                    "changed_by": citizen_id,
+                    "remarks": "Complaint submitted by citizen.",
+                }
+            ).execute()
+
+        except Exception as history_error:
+            # Complaint itself was already created.
+            # Do not fail the whole request because history insertion failed.
+            print(
+                "Warning: Failed to create complaint status history:",
+                history_error,
+            )
+
+        return {
+            "success": True,
+            "message": "Complaint submitted successfully.",
+            "complaint": created_complaint,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("Create complaint error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create complaint: {str(error)}",
+        )
+
+
+# ============================================================
+# GET ALL COMPLAINTS
+# ============================================================
+
+@router.get("/")
+def get_complaints(
+    current_user: dict = Depends(
+        require_role("admin", "worker")
+    ),
+):
+    """
+    Admin and workers can view all complaints.
+    """
+
+    try:
+        response = (
+            supabase
+            .table("complaints")
+            .select(
+                """
+                *,
+                categories (
+                    id,
+                    name,
+                    description
+                ),
+                workers (
+                    id,
+                    worker_code,
+                    department,
+                    specialization,
+                    user_id
+                )
+                """
+            )
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return {
+            "success": True,
+            "count": len(response.data or []),
+            "complaints": response.data or [],
+        }
+
+    except Exception as error:
+        print("Get complaints error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch complaints: {str(error)}",
+        )
+
+
+# ============================================================
+# GET CITY-WIDE COMPLAINT PROGRESS
+# AGGREGATED DATA ONLY
+# ============================================================
+
+@router.get("/city/stats")
+def get_city_complaint_stats(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return city-wide aggregated complaint progress.
+
+    This endpoint exposes counts and percentages only.
+    It does not expose complaint records or citizen information.
+    """
+
+    try:
+        response = (
+            supabase
+            .table("complaints")
+            .select("id, status, created_at, updated_at")
+            .execute()
+        )
+
+        complaints = response.data or []
+        total = len(complaints)
+
+        resolved = sum(
+            1 for complaint in complaints
+            if complaint.get("status") == "Resolved"
+        )
+
+        rejected = sum(
+            1 for complaint in complaints
+            if complaint.get("status") == "Rejected"
+        )
+
+        ongoing = total - resolved - rejected
+
+        resolution_rate = (
+            round((resolved / total) * 100, 1)
+            if total
+            else 0
+        )
+
+        return {
+            "success": True,
+            "stats": {
+                "total": total,
+                "resolved": resolved,
+                "ongoing": ongoing,
+                "rejected": rejected,
+                "resolution_rate": resolution_rate,
+            },
+        }
+
+    except Exception as error:
+        print("Get city complaint stats error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch city complaint statistics: {str(error)}",
+        )
+
+
+# ============================================================
+# GET SINGLE COMPLAINT
+# ============================================================
+
+@router.get("/rewards/me")
+def get_my_rewards(
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """Return the authenticated citizen's total points and reward history."""
+
+    try:
+        response = (
+            supabase
+            .table("rewards")
+            .select("id, points, reason, complaint_id, created_at")
+            .eq("user_id", current_user["id"])
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        rewards = response.data or []
+        total_points = sum(int(reward.get("points") or 0) for reward in rewards)
+
+        return {
+            "success": True,
+            "total_points": total_points,
+            "reward_count": len(rewards),
+            "rewards": rewards,
+        }
+
+    except Exception as error:
+        print("Get rewards error:", error)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch rewards: {str(error)}",
+        )
+
+
+
+# ============================================================
+# GET CIVIC LEADERBOARD
+# ============================================================
+
+@router.get("/leaderboard")
+def get_leaderboard(
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """
+    Return the civic leaderboard for citizens.
+
+    Ranking is based on total reward points.
+    Additional statistics are included for transparency.
+    """
+
+    try:
+        users_response = (
+            supabase
+            .table("users")
+            .select(
+                "id, name, email, profile_image_url, created_at"
+            )
+            .eq("role", "citizen")
+            .eq("is_active", True)
+            .execute()
+        )
+
+        rewards_response = (
+            supabase
+            .table("rewards")
+            .select("user_id, points")
+            .execute()
+        )
+
+        complaints_response = (
+            supabase
+            .table("complaints")
+            .select("citizen_id, status")
+            .execute()
+        )
+
+        users = users_response.data or []
+        rewards = rewards_response.data or []
+        complaints = complaints_response.data or []
+
+        points_by_user = {}
+        for reward in rewards:
+            user_id = reward.get("user_id")
+            if user_id:
+                points_by_user[user_id] = (
+                    points_by_user.get(user_id, 0)
+                    + int(reward.get("points") or 0)
+                )
+
+        complaints_by_user = {}
+        resolved_by_user = {}
+
+        for complaint in complaints:
+            user_id = complaint.get("citizen_id")
+            if not user_id:
+                continue
+
+            complaints_by_user[user_id] = (
+                complaints_by_user.get(user_id, 0) + 1
+            )
+
+            if complaint.get("status") == "Resolved":
+                resolved_by_user[user_id] = (
+                    resolved_by_user.get(user_id, 0) + 1
+                )
+
+        leaderboard = []
+
+        for user in users:
+            user_id = user["id"]
+
+            leaderboard.append(
+                {
+                    "user_id": user_id,
+                    "name": user.get("name") or "Citizen",
+                    "email": user.get("email"),
+                    "profile_image_url": user.get(
+                        "profile_image_url"
+                    ),
+                    "total_points": points_by_user.get(
+                        user_id, 0
+                    ),
+                    "complaints_submitted": complaints_by_user.get(
+                        user_id, 0
+                    ),
+                    "complaints_resolved": resolved_by_user.get(
+                        user_id, 0
+                    ),
+                    "member_since": user.get("created_at"),
+                }
+            )
+
+        leaderboard.sort(
+            key=lambda citizen: (
+                -citizen["total_points"],
+                -citizen["complaints_resolved"],
+                -citizen["complaints_submitted"],
+                citizen["name"].lower(),
+            )
+        )
+
+        current_rank = None
+
+        for index, citizen in enumerate(leaderboard, start=1):
+            citizen["rank"] = index
+
+            if citizen["user_id"] == current_user["id"]:
+                current_rank = index
+
+        return {
+            "success": True,
+            "total_citizens": len(leaderboard),
+            "current_user_rank": current_rank,
+            "leaderboard": leaderboard,
+        }
+
+    except Exception as error:
+        print("Get leaderboard error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch leaderboard: {str(error)}",
+        )
+
+
+
+
+# ============================================================
+# COMMUNITY SUPPORT / FEEDBACK / COMMENTS
+# ============================================================
+
+class CommunityFeedbackCreate(BaseModel):
+    feedback_type: str
+
+
+class CommunityCommentCreate(BaseModel):
+    comment: str = Field(min_length=1, max_length=1000)
+
+
+def _community_complaint(complaint_id: str):
+    response = (
+        supabase.table("complaints")
+        .select("id, citizen_id, title, description, status, priority, created_at, category_id, categories(id, name)")
+        .eq("id", complaint_id)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+    return response.data[0]
+
+
+@router.get("/community")
+def get_community_complaints(
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """Return a sanitized community complaint feed with support/feedback counts."""
+    try:
+        complaints_response = (
+            supabase.table("complaints")
+            .select("id, citizen_id, title, description, status, priority, created_at, category_id, categories(id, name)")
+            .neq("status", "Rejected")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        complaints = complaints_response.data or []
+        if not complaints:
+            return {"success": True, "complaints": []}
+
+        ids = [item["id"] for item in complaints]
+        supports = supabase.table("complaint_supports").select("complaint_id, user_id").in_("complaint_id", ids).execute().data or []
+        feedback = supabase.table("complaint_feedback").select("complaint_id, user_id, feedback_type").in_("complaint_id", ids).execute().data or []
+        comments = supabase.table("complaint_comments").select("complaint_id, id").in_("complaint_id", ids).execute().data or []
+
+        support_counts = {}
+        genuine_counts = {}
+        not_genuine_counts = {}
+        comment_counts = {}
+        user_support = set()
+        user_feedback = {}
+
+        for row in supports:
+            cid = row.get("complaint_id")
+            support_counts[cid] = support_counts.get(cid, 0) + 1
+            if row.get("user_id") == current_user["id"]:
+                user_support.add(cid)
+
+        for row in feedback:
+            cid = row.get("complaint_id")
+            if row.get("feedback_type") == "genuine":
+                genuine_counts[cid] = genuine_counts.get(cid, 0) + 1
+            elif row.get("feedback_type") == "not_genuine":
+                not_genuine_counts[cid] = not_genuine_counts.get(cid, 0) + 1
+            if row.get("user_id") == current_user["id"]:
+                user_feedback[cid] = row.get("feedback_type")
+
+        for row in comments:
+            cid = row.get("complaint_id")
+            comment_counts[cid] = comment_counts.get(cid, 0) + 1
+
+        for complaint in complaints:
+            cid = complaint["id"]
+            complaint.update({
+                "support_count": support_counts.get(cid, 0),
+                "genuine_count": genuine_counts.get(cid, 0),
+                "not_genuine_count": not_genuine_counts.get(cid, 0),
+                "comment_count": comment_counts.get(cid, 0),
+                "user_supported": cid in user_support,
+                "user_feedback": user_feedback.get(cid),
+            })
+            # Never expose the citizen owner's identity in the community feed.
+            complaint.pop("citizen_id", None)
+
+        return {"success": True, "count": len(complaints), "complaints": complaints}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Get community complaints error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch community complaints: {str(error)}")
+
+
+@router.get("/{complaint_id}/community")
+def get_community_details(
+    complaint_id: str,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        complaint = _community_complaint(complaint_id)
+        if complaint.get("status") == "Rejected":
+            raise HTTPException(status_code=404, detail="This complaint is not available in the community feed.")
+
+        supports = supabase.table("complaint_supports").select("user_id").eq("complaint_id", complaint_id).execute().data or []
+        feedback = supabase.table("complaint_feedback").select("user_id, feedback_type").eq("complaint_id", complaint_id).execute().data or []
+        comments = supabase.table("complaint_comments").select("id, user_id, comment, created_at, updated_at").eq("complaint_id", complaint_id).order("created_at", desc=False).execute().data or []
+
+        user_ids = list({row.get("user_id") for row in comments if row.get("user_id")})
+        users = []
+        if user_ids:
+            users = supabase.table("users").select("id, name, profile_image_url").in_("id", user_ids).execute().data or []
+        users_by_id = {u["id"]: u for u in users}
+
+        genuine_count = sum(1 for row in feedback if row.get("feedback_type") == "genuine")
+        not_genuine_count = sum(1 for row in feedback if row.get("feedback_type") == "not_genuine")
+        user_feedback = next((row.get("feedback_type") for row in feedback if row.get("user_id") == current_user["id"]), None)
+
+        safe_comments = []
+        for row in comments:
+            profile = users_by_id.get(row.get("user_id"), {})
+            safe_comments.append({
+                "id": row.get("id"),
+                "user_id": row.get("user_id"),
+                "user_name": profile.get("name") or "Citizen",
+                "profile_image_url": profile.get("profile_image_url"),
+                "comment": row.get("comment"),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+            })
+
+        complaint.pop("citizen_id", None)
+        return {
+            "success": True,
+            "complaint": complaint,
+            "support_count": len(supports),
+            "user_supported": any(row.get("user_id") == current_user["id"] for row in supports),
+            "genuine_count": genuine_count,
+            "not_genuine_count": not_genuine_count,
+            "user_feedback": user_feedback,
+            "comment_count": len(safe_comments),
+            "comments": safe_comments,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Get community details error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch community discussion: {str(error)}")
+
+
+@router.post("/{complaint_id}/support")
+def support_community_complaint(
+    complaint_id: str,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        complaint = _community_complaint(complaint_id)
+        if complaint.get("status") == "Rejected":
+            raise HTTPException(status_code=404, detail="This complaint is not available for community support.")
+        if complaint.get("citizen_id") == current_user["id"]:
+            raise HTTPException(status_code=400, detail="You cannot support your own complaint.")
+
+        existing = supabase.table("complaint_supports").select("id").eq("complaint_id", complaint_id).eq("user_id", current_user["id"]).limit(1).execute().data or []
+        if existing:
+            return {"success": True, "message": "You already support this complaint."}
+
+        supabase.table("complaint_supports").insert({"complaint_id": complaint_id, "user_id": current_user["id"]}).execute()
+        return {"success": True, "message": "Community support added."}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Support complaint error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to add support: {str(error)}")
+
+
+@router.delete("/{complaint_id}/support")
+def remove_community_support(
+    complaint_id: str,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        supabase.table("complaint_supports").delete().eq("complaint_id", complaint_id).eq("user_id", current_user["id"]).execute()
+        return {"success": True, "message": "Community support removed."}
+    except Exception as error:
+        print("Remove support error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to remove support: {str(error)}")
+
+
+@router.post("/{complaint_id}/feedback")
+def add_community_feedback(
+    complaint_id: str,
+    feedback_data: CommunityFeedbackCreate,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    if feedback_data.feedback_type not in {"genuine", "not_genuine"}:
+        raise HTTPException(status_code=400, detail="feedback_type must be 'genuine' or 'not_genuine'.")
+    try:
+        complaint = _community_complaint(complaint_id)
+        if complaint.get("status") == "Rejected":
+            raise HTTPException(status_code=404, detail="This complaint is not available for community feedback.")
+        if complaint.get("citizen_id") == current_user["id"]:
+            raise HTTPException(status_code=400, detail="You cannot vote on the genuineness of your own complaint.")
+
+        existing = supabase.table("complaint_feedback").select("id").eq("complaint_id", complaint_id).eq("user_id", current_user["id"]).limit(1).execute().data or []
+        if existing:
+            supabase.table("complaint_feedback").update({"feedback_type": feedback_data.feedback_type, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", existing[0]["id"]).execute()
+        else:
+            supabase.table("complaint_feedback").insert({"complaint_id": complaint_id, "user_id": current_user["id"], "feedback_type": feedback_data.feedback_type}).execute()
+        return {"success": True, "message": "Community feedback saved."}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Community feedback error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to save community feedback: {str(error)}")
+
+
+@router.delete("/{complaint_id}/feedback")
+def remove_community_feedback(
+    complaint_id: str,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        supabase.table("complaint_feedback").delete().eq("complaint_id", complaint_id).eq("user_id", current_user["id"]).execute()
+        return {"success": True, "message": "Community feedback removed."}
+    except Exception as error:
+        print("Remove feedback error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to remove community feedback: {str(error)}")
+
+
+@router.post("/{complaint_id}/comments")
+def add_community_comment(
+    complaint_id: str,
+    comment_data: CommunityCommentCreate,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        complaint = _community_complaint(complaint_id)
+        if complaint.get("status") == "Rejected":
+            raise HTTPException(status_code=404, detail="This complaint is not available for comments.")
+
+        response = supabase.table("complaint_comments").insert({
+            "complaint_id": complaint_id,
+            "user_id": current_user["id"],
+            "comment": comment_data.comment.strip(),
+        }).execute()
+        return {"success": True, "comment": response.data[0] if response.data else None}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Add comment error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(error)}")
+
+
+@router.delete("/{complaint_id}/comments/{comment_id}")
+def delete_community_comment(
+    complaint_id: str,
+    comment_id: str,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    try:
+        existing = supabase.table("complaint_comments").select("id, user_id").eq("id", comment_id).eq("complaint_id", complaint_id).limit(1).execute().data or []
+        if not existing:
+            raise HTTPException(status_code=404, detail="Comment not found.")
+        if existing[0]["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="You can only delete your own comments.")
+        supabase.table("complaint_comments").delete().eq("id", comment_id).execute()
+        return {"success": True, "message": "Comment deleted."}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Delete comment error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to delete comment: {str(error)}")
+
+
+@router.get("/{complaint_id}")
+def get_complaint(
+    complaint_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get a single complaint.
+
+    Citizens can only view their own complaints.
+    Admins and workers can view any complaint.
+
+    The response also includes complete status history.
+    """
+
+    try:
+        complaint = get_complaint_for_user(
+            complaint_id,
+            current_user,
+        )
+
+        # Get status history
+        history_response = (
+            supabase
+            .table("complaint_status_history")
+            .select("*")
+            .eq("complaint_id", complaint_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+
+        status_history = history_response.data or []
+
+        return {
+            "success": True,
+            "complaint": complaint,
+            "status_history": status_history,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("Get complaint error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch complaint: {str(error)}",
+        )
+
+
+# ============================================================
+# GET COMPLAINT STATUS HISTORY
+# ============================================================
+
+@router.get("/{complaint_id}/history")
+def get_complaint_history(
+    complaint_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the complete status history of a complaint.
+
+    Citizens can only access history for their own complaints.
+    Admins and workers can access any complaint history.
+    """
+
+    try:
+        # First verify that the complaint exists
+        # and that the current user can access it.
+        get_complaint_for_user(
+            complaint_id,
+            current_user,
+        )
+
+        history_response = (
+            supabase
+            .table("complaint_status_history")
+            .select("*")
+            .eq("complaint_id", complaint_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+
+        history = history_response.data or []
+
+        return {
+            "success": True,
+            "complaint_id": complaint_id,
+            "count": len(history),
+            "history": history,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("Get complaint history error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to fetch complaint status history: "
+                f"{str(error)}"
+            ),
+        )
+
+
+# ============================================================
+# GET CITIZEN'S OWN COMPLAINTS
+# ============================================================
+
+@router.get("/citizen/{citizen_id}")
+def get_citizen_complaints(
+    citizen_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Citizens can only fetch their own complaints.
+
+    Admins can fetch complaints for any citizen.
+    Workers are not allowed to use this endpoint.
+    """
+
+    try:
+        # Citizen cannot request another citizen's complaints
+        if current_user["role"] == "citizen":
+            if citizen_id != current_user["id"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You can only view your own complaints.",
+                )
+
+        elif current_user["role"] == "worker":
+            raise HTTPException(
+                status_code=403,
+                detail="Workers cannot access citizen complaint history.",
+            )
+
+        elif current_user["role"] != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="You are not authorized to access this resource.",
+            )
+
+        response = (
+            supabase
+            .table("complaints")
+            .select(
+                """
+                *,
+                categories (
+                    id,
+                    name,
+                    description
+                ),
+                workers (
+                    id,
+                    worker_code,
+                    department,
+                    specialization
+                )
+                """
+            )
+            .eq("citizen_id", citizen_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        complaints = response.data or []
+
+        return {
+            "success": True,
+            "count": len(complaints),
+            "complaints": complaints,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("Get citizen complaints error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to fetch citizen complaints: "
+                f"{str(error)}"
+            ),
+        )
+
+
+# ============================================================
+# UPDATE COMPLAINT STATUS
+# ============================================================
+
+@router.patch("/{complaint_id}/status")
+def update_complaint_status(
+    complaint_id: str,
+    status_update: ComplaintStatusUpdate,
+    current_user: dict = Depends(
+        require_role("admin", "worker")
+    ),
+):
+    """
+    Update complaint status.
+
+    changed_by is always taken from the authenticated user.
+    It is never accepted from the frontend.
+    """
+
+    allowed_statuses = {
+        "Submitted",
+        "Verified",
+        "Assigned",
+        "In Progress",
+        "Resolved",
+        "Rejected",
+    }
+
+    if status_update.status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid status. Allowed values: "
+                + ", ".join(sorted(allowed_statuses))
+            ),
+        )
+
+    try:
+        # Get existing complaint
+        existing_response = (
+            supabase
+            .table("complaints")
+            .select(
+                """
+                id,
+                citizen_id,
+                status,
+                assigned_worker_id
+                """
+            )
+            .eq("id", complaint_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not existing_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Complaint not found.",
+            )
+
+        existing_complaint = existing_response.data[0]
+
+        old_status = existing_complaint["status"]
+
+        # Worker authorization:
+        # worker can update only complaints assigned to them.
+        if current_user["role"] == "worker":
+            worker_response = (
+                supabase
+                .table("workers")
+                .select("id")
+                .eq("user_id", current_user["id"])
+                .limit(1)
+                .execute()
+            )
+
+            if not worker_response.data:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Worker profile not found.",
+                )
+
+            worker_id = worker_response.data[0]["id"]
+
+            if (
+                existing_complaint["assigned_worker_id"]
+                != worker_id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "You can only update complaints "
+                        "assigned to you."
+                    ),
+                )
+
+        update_data = {
+            "status": status_update.status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        if status_update.status == "Resolved":
+            update_data["resolved_at"] = (
+                datetime.now(timezone.utc).isoformat()
+            )
+        else:
+            update_data["resolved_at"] = None
+
+        update_response = (
+            supabase
+            .table("complaints")
+            .update(update_data)
+            .eq("id", complaint_id)
+            .execute()
+        )
+
+        if not update_response.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Complaint status could not be updated.",
+            )
+
+        updated_complaint = update_response.data[0]
+
+        # Status history
+        history_data = {
+            "complaint_id": complaint_id,
+            "old_status": old_status,
+            "new_status": status_update.status,
+            "changed_by": current_user["id"],
+            "remarks": status_update.remarks,
+        }
+
+        try:
+            supabase.table(
+                "complaint_status_history"
+            ).insert(history_data).execute()
+
+        except Exception as history_error:
+            print(
+                "Warning: Failed to create status history:",
+                history_error,
+            )
+
+        return {
+            "success": True,
+            "message": "Complaint status updated successfully.",
+            "complaint": updated_complaint,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("Update complaint status error:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to update complaint status: "
+                f"{str(error)}"
+            ),
+        )
+
