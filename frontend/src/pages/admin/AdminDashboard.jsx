@@ -54,7 +54,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 const generateWorkerCode = () => {
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(100 + Math.random() * 900);

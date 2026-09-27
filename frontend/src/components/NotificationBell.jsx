@@ -15,7 +15,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  "https://smart-city-complaint-portal-krs3.onrender.com";
 
 const TYPE_CONFIG = {
   new_complaint: {
@@ -404,7 +405,6 @@ function NotificationBell() {
 
       {isOpen && (
         <div className="absolute right-0 mt-3 w-[min(420px,calc(100vw-2rem))] bg-white border border-gray-200 rounded-2xl shadow-2xl z-[100] overflow-hidden">
-          {/* Header */}
           <div className="px-4 py-4 border-b bg-gray-50">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -453,7 +453,6 @@ function NotificationBell() {
               </div>
             </div>
 
-            {/* Search */}
             <div className="relative mt-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
 
@@ -468,7 +467,6 @@ function NotificationBell() {
               />
             </div>
 
-            {/* Read filter */}
             <div className="flex items-center gap-2 mt-3">
               {[
                 ["all", "All"],
@@ -516,7 +514,6 @@ function NotificationBell() {
             </div>
           </div>
 
-          {/* Action bar */}
           {unreadCount > 0 && (
             <div className="px-4 py-2 border-b bg-white flex items-center justify-between">
               <span className="text-xs text-gray-500">
@@ -538,7 +535,6 @@ function NotificationBell() {
             </div>
           )}
 
-          {/* Error */}
           {error && (
             <div className="mx-4 mt-3 flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700">
               <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -557,7 +553,6 @@ function NotificationBell() {
             </div>
           )}
 
-          {/* Notification list */}
           <div className="max-h-[430px] overflow-y-auto">
             {loading ? (
               <div className="py-12 text-center">
@@ -680,7 +675,6 @@ function NotificationBell() {
             )}
           </div>
 
-          {/* Footer */}
           <div className="px-4 py-2.5 border-t bg-gray-50 flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
               {notifications.length} total notification
