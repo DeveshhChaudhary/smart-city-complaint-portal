@@ -289,60 +289,25 @@ def get_complaints(
 def get_city_complaint_stats(
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Return city-wide aggregated complaint progress.
-
-    This endpoint exposes counts and percentages only.
-    It does not expose complaint records or citizen information.
-    """
-
+    """Return city-wide aggregated complaint progress using lightweight count queries."""
     try:
-        response = (
-            supabase
-            .table("complaints")
-            .select("id, status, created_at, updated_at")
-            .execute()
-        )
+        total_response = supabase.table("complaints").select("id", count="exact").execute()
+        resolved_response = supabase.table("complaints").select("id", count="exact").eq("status", "Resolved").execute()
+        rejected_response = supabase.table("complaints").select("id", count="exact").eq("status", "Rejected").execute()
 
-        complaints = response.data or []
-        total = len(complaints)
+        total = int(total_response.count or 0)
+        resolved = int(resolved_response.count or 0)
+        rejected = int(rejected_response.count or 0)
+        ongoing = max(total - resolved - rejected, 0)
 
-        resolved = sum(
-            1 for complaint in complaints
-            if complaint.get("status") == "Resolved"
-        )
-
-        rejected = sum(
-            1 for complaint in complaints
-            if complaint.get("status") == "Rejected"
-        )
-
-        ongoing = total - resolved - rejected
-
-        resolution_rate = (
-            round((resolved / total) * 100, 1)
-            if total
-            else 0
-        )
-
-        return {
-            "success": True,
-            "stats": {
-                "total": total,
-                "resolved": resolved,
-                "ongoing": ongoing,
-                "rejected": rejected,
-                "resolution_rate": resolution_rate,
-            },
-        }
-
+        return {"success": True, "stats": {
+            "total": total, "resolved": resolved, "ongoing": ongoing,
+            "rejected": rejected,
+            "resolution_rate": round((resolved / total) * 100, 1) if total else 0,
+        }}
     except Exception as error:
         print("Get city complaint stats error:", error)
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch city complaint statistics: {str(error)}",
-        )
+        raise HTTPException(status_code=500, detail="Failed to fetch city complaint statistics.")
 
 
 # ============================================================
@@ -389,130 +354,35 @@ def get_my_rewards(
 # ============================================================
 
 @router.get("/leaderboard")
-def get_leaderboard(
-    current_user: dict = Depends(require_role("citizen")),
-):
-    """
-    Return the civic leaderboard for citizens.
-
-    Ranking is based on total reward points.
-    Additional statistics are included for transparency.
-    """
-
+def get_leaderboard(current_user: dict = Depends(require_role("citizen"))):
+    """Return the civic leaderboard with bounded database reads."""
     try:
-        users_response = (
-            supabase
-            .table("users")
-            .select(
-                "id, name, email, profile_image_url, created_at"
-            )
-            .eq("role", "citizen")
-            .eq("is_active", True)
-            .execute()
-        )
+        users = (supabase.table("users").select("id, name, profile_image_url, created_at").eq("role", "citizen").eq("is_active", True).limit(500).execute().data or [])
+        rewards = (supabase.table("rewards").select("user_id, points").limit(5000).execute().data or [])
+        complaints = (supabase.table("complaints").select("citizen_id, status").limit(5000).execute().data or [])
 
-        rewards_response = (
-            supabase
-            .table("rewards")
-            .select("user_id, points")
-            .execute()
-        )
+        points = {}
+        for r in rewards:
+            uid=r.get("user_id")
+            if uid: points[uid]=points.get(uid,0)+int(r.get("points") or 0)
+        submitted, resolved = {}, {}
+        for c in complaints:
+            uid=c.get("citizen_id")
+            if not uid: continue
+            submitted[uid]=submitted.get(uid,0)+1
+            if c.get("status")=="Resolved": resolved[uid]=resolved.get(uid,0)+1
 
-        complaints_response = (
-            supabase
-            .table("complaints")
-            .select("citizen_id, status")
-            .execute()
-        )
-
-        users = users_response.data or []
-        rewards = rewards_response.data or []
-        complaints = complaints_response.data or []
-
-        points_by_user = {}
-        for reward in rewards:
-            user_id = reward.get("user_id")
-            if user_id:
-                points_by_user[user_id] = (
-                    points_by_user.get(user_id, 0)
-                    + int(reward.get("points") or 0)
-                )
-
-        complaints_by_user = {}
-        resolved_by_user = {}
-
-        for complaint in complaints:
-            user_id = complaint.get("citizen_id")
-            if not user_id:
-                continue
-
-            complaints_by_user[user_id] = (
-                complaints_by_user.get(user_id, 0) + 1
-            )
-
-            if complaint.get("status") == "Resolved":
-                resolved_by_user[user_id] = (
-                    resolved_by_user.get(user_id, 0) + 1
-                )
-
-        leaderboard = []
-
-        for user in users:
-            user_id = user["id"]
-
-            leaderboard.append(
-                {
-                    "user_id": user_id,
-                    "name": user.get("name") or "Citizen",
-                    "email": user.get("email"),
-                    "profile_image_url": user.get(
-                        "profile_image_url"
-                    ),
-                    "total_points": points_by_user.get(
-                        user_id, 0
-                    ),
-                    "complaints_submitted": complaints_by_user.get(
-                        user_id, 0
-                    ),
-                    "complaints_resolved": resolved_by_user.get(
-                        user_id, 0
-                    ),
-                    "member_since": user.get("created_at"),
-                }
-            )
-
-        leaderboard.sort(
-            key=lambda citizen: (
-                -citizen["total_points"],
-                -citizen["complaints_resolved"],
-                -citizen["complaints_submitted"],
-                citizen["name"].lower(),
-            )
-        )
-
-        current_rank = None
-
-        for index, citizen in enumerate(leaderboard, start=1):
-            citizen["rank"] = index
-
-            if citizen["user_id"] == current_user["id"]:
-                current_rank = index
-
-        return {
-            "success": True,
-            "total_citizens": len(leaderboard),
-            "current_user_rank": current_rank,
-            "leaderboard": leaderboard,
-        }
-
+        board=[]
+        for u in users:
+            uid=u["id"]
+            board.append({"user_id":uid,"name":u.get("name") or "Citizen","email":None,"profile_image_url":u.get("profile_image_url"),"total_points":points.get(uid,0),"complaints_submitted":submitted.get(uid,0),"complaints_resolved":resolved.get(uid,0),"member_since":u.get("created_at")})
+        board.sort(key=lambda x:(-x["total_points"],-x["complaints_resolved"],-x["complaints_submitted"],x["name"].lower()))
+        for i,c in enumerate(board,1): c["rank"]=i
+        rank=next((c["rank"] for c in board if c["user_id"]==current_user["id"]),None)
+        return {"success":True,"total_citizens":len(board),"current_user_rank":rank,"leaderboard":board}
     except Exception as error:
         print("Get leaderboard error:", error)
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch leaderboard: {str(error)}",
-        )
-
+        raise HTTPException(status_code=500, detail="Failed to fetch leaderboard.")
 
 
 
@@ -542,72 +412,34 @@ def _community_complaint(complaint_id: str):
 
 
 @router.get("/community")
-def get_community_complaints(
-    current_user: dict = Depends(require_role("citizen")),
-):
-    """Return a sanitized community complaint feed with support/feedback counts."""
+def get_community_complaints(current_user: dict = Depends(require_role("citizen"))):
+    """Return a bounded recent community feed and its interaction counts."""
     try:
-        complaints_response = (
-            supabase.table("complaints")
-            .select("id, citizen_id, title, description, status, priority, created_at, category_id, categories(id, name)")
-            .neq("status", "Rejected")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        complaints = complaints_response.data or []
-        if not complaints:
-            return {"success": True, "complaints": []}
-
-        ids = [item["id"] for item in complaints]
-        supports = supabase.table("complaint_supports").select("complaint_id, user_id").in_("complaint_id", ids).execute().data or []
-        feedback = supabase.table("complaint_feedback").select("complaint_id, user_id, feedback_type").in_("complaint_id", ids).execute().data or []
-        comments = supabase.table("complaint_comments").select("complaint_id, id").in_("complaint_id", ids).execute().data or []
-
-        support_counts = {}
-        genuine_counts = {}
-        not_genuine_counts = {}
-        comment_counts = {}
-        user_support = set()
-        user_feedback = {}
-
-        for row in supports:
-            cid = row.get("complaint_id")
-            support_counts[cid] = support_counts.get(cid, 0) + 1
-            if row.get("user_id") == current_user["id"]:
-                user_support.add(cid)
-
-        for row in feedback:
-            cid = row.get("complaint_id")
-            if row.get("feedback_type") == "genuine":
-                genuine_counts[cid] = genuine_counts.get(cid, 0) + 1
-            elif row.get("feedback_type") == "not_genuine":
-                not_genuine_counts[cid] = not_genuine_counts.get(cid, 0) + 1
-            if row.get("user_id") == current_user["id"]:
-                user_feedback[cid] = row.get("feedback_type")
-
-        for row in comments:
-            cid = row.get("complaint_id")
-            comment_counts[cid] = comment_counts.get(cid, 0) + 1
-
-        for complaint in complaints:
-            cid = complaint["id"]
-            complaint.update({
-                "support_count": support_counts.get(cid, 0),
-                "genuine_count": genuine_counts.get(cid, 0),
-                "not_genuine_count": not_genuine_counts.get(cid, 0),
-                "comment_count": comment_counts.get(cid, 0),
-                "user_supported": cid in user_support,
-                "user_feedback": user_feedback.get(cid),
-            })
-            # Never expose the citizen owner's identity in the community feed.
-            complaint.pop("citizen_id", None)
-
-        return {"success": True, "count": len(complaints), "complaints": complaints}
-    except HTTPException:
-        raise
+        complaints=(supabase.table("complaints").select("id, title, description, status, priority, created_at, category_id, categories(id, name)").neq("status","Rejected").order("created_at",desc=True).limit(50).execute().data or [])
+        if not complaints: return {"success":True,"count":0,"complaints":[]}
+        ids=[c["id"] for c in complaints]
+        supports=supabase.table("complaint_supports").select("complaint_id,user_id").in_("complaint_id",ids).limit(5000).execute().data or []
+        feedback=supabase.table("complaint_feedback").select("complaint_id,user_id,feedback_type").in_("complaint_id",ids).limit(5000).execute().data or []
+        comments=supabase.table("complaint_comments").select("complaint_id,id").in_("complaint_id",ids).limit(5000).execute().data or []
+        sc,gc,ngc,cc={}, {}, {}, {}; us=set(); uf={}
+        for r in supports:
+            cid=r.get("complaint_id"); sc[cid]=sc.get(cid,0)+1
+            if r.get("user_id")==current_user["id"]: us.add(cid)
+        for r in feedback:
+            cid=r.get("complaint_id"); typ=r.get("feedback_type")
+            if typ=="genuine": gc[cid]=gc.get(cid,0)+1
+            elif typ=="not_genuine": ngc[cid]=ngc.get(cid,0)+1
+            if r.get("user_id")==current_user["id"]: uf[cid]=typ
+        for r in comments:
+            cid=r.get("complaint_id"); cc[cid]=cc.get(cid,0)+1
+        for c in complaints:
+            cid=c["id"]; c.update({"support_count":sc.get(cid,0),"genuine_count":gc.get(cid,0),"not_genuine_count":ngc.get(cid,0),"comment_count":cc.get(cid,0),"user_supported":cid in us,"user_feedback":uf.get(cid)})
+        return {"success":True,"count":len(complaints),"complaints":complaints}
+    except HTTPException: raise
     except Exception as error:
         print("Get community complaints error:", error)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch community complaints: {str(error)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch community complaints.")
+
 
 
 @router.get("/{complaint_id}/community")
