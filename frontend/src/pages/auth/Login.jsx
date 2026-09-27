@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 
 function Login() {
   const navigate = useNavigate();
@@ -58,6 +58,11 @@ function Login() {
 
       const data = response.data;
 
+      if (!data?.access_token || !data?.user) {
+        setError("Login response from server was invalid.");
+        return;
+      }
+
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
@@ -74,11 +79,21 @@ function Login() {
       console.error("Login error:", error);
 
       if (error.response?.data?.detail) {
-        setError(error.response.data.detail);
+        setError(
+          Array.isArray(error.response.data.detail)
+            ? error.response.data.detail
+                .map((item) => item.msg || String(item))
+                .join(", ")
+            : error.response.data.detail
+        );
       } else if (error.response?.data?.message) {
         setError(error.response.data.message);
+      } else if (error.request) {
+        setError(
+          "Unable to connect to the Smart City server. Please try again."
+        );
       } else {
-        setError("Login failed. Please check your email and password.");
+        setError("Login failed. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -136,17 +151,14 @@ function Login() {
 
       setSuccess(message);
 
-      // Clear registration form
       setName("");
       setPhone("");
       setRegisterEmail("");
       setRegisterPassword("");
       setConfirmPassword("");
 
-      // Switch to login
       setMode("login");
 
-      // Put registered email into login form
       setEmail(registerEmail.trim());
     } catch (error) {
       console.error("Registration error:", error);
@@ -161,6 +173,10 @@ function Login() {
         );
       } else if (error.response?.data?.message) {
         setError(error.response.data.message);
+      } else if (error.request) {
+        setError(
+          "Unable to connect to the Smart City server. Please try again."
+        );
       } else {
         setError(
           "Registration failed. Please check your details and try again."
@@ -381,6 +397,7 @@ function Login() {
               <p className="text-xs text-blue-700">
                 <span className="font-bold">Account type:</span> Citizen
               </p>
+
               <p className="text-xs text-blue-600 mt-1">
                 Public registration is available only for citizen accounts.
               </p>
@@ -406,7 +423,6 @@ function Login() {
             </p>
           </form>
         )}
-
       </div>
     </div>
   );
