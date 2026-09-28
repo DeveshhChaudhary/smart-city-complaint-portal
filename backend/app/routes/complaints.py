@@ -1,7 +1,9 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List
+import uuid
+import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.config.supabase import supabase
@@ -314,12 +316,88 @@ def get_city_complaint_stats(
 # GET SINGLE COMPLAINT
 # ============================================================
 
+# ============================================================
+# CIVIC REWARDS & LEADERBOARD
+# ============================================================
+
+REWARD_CATALOG = [
+    {
+        "id": "rew-transit-pass",
+        "name": "City Metro 1-Day Transit Pass",
+        "description": "Unlimited one-day travel on municipal city metro and bus transit networks.",
+        "points_required": 50,
+        "category": "Transit",
+        "status": "Active",
+        "icon": "Bus",
+        "popular": True,
+    },
+    {
+        "id": "rew-parking-voucher",
+        "name": "Smart Parking 2-Hour Voucher",
+        "description": "2 hours of complimentary municipal public parking at any Smart City designated lot.",
+        "points_required": 40,
+        "category": "Mobility",
+        "status": "Active",
+        "icon": "Car",
+    },
+    {
+        "id": "rew-tree-plant",
+        "name": "Plant a Tree in City Park",
+        "description": "Dedicate a native sapling planted by the Parks Department with a geotagged civic certificate.",
+        "points_required": 80,
+        "category": "Environment",
+        "status": "Active",
+        "icon": "TreePine",
+        "popular": True,
+    },
+    {
+        "id": "rew-library-gold",
+        "name": "Central Library Gold Pass",
+        "description": "3-month priority access to municipal digital archives, research rooms, and coworking spaces.",
+        "points_required": 60,
+        "category": "Education",
+        "status": "Active",
+        "icon": "BookOpen",
+    },
+    {
+        "id": "rew-eco-kit",
+        "name": "Civic Eco-Friendly Kit",
+        "description": "Jute tote bag, reusable stainless steel bottle, and municipal compost starter kit.",
+        "points_required": 75,
+        "category": "Sustainability",
+        "status": "Active",
+        "icon": "ShoppingBag",
+    },
+    {
+        "id": "rew-civic-certificate",
+        "name": "Official Civic Champion Certificate",
+        "description": "Personalized digital certificate of civic excellence signed by City Municipal Authority.",
+        "points_required": 100,
+        "category": "Recognition",
+        "status": "Active",
+        "icon": "Award",
+    },
+    {
+        "id": "rew-heritage-pass",
+        "name": "Municipal Heritage & Museum Pass",
+        "description": "Free admission for 2 persons to all city museums and cultural heritage sites.",
+        "points_required": 90,
+        "category": "Culture",
+        "status": "Active",
+        "icon": "Landmark",
+    },
+]
+
+
+class RewardClaimRequest(BaseModel):
+    reward_id: str
+
+
 @router.get("/rewards/me")
 def get_my_rewards(
     current_user: dict = Depends(require_role("citizen")),
 ):
-    """Return the authenticated citizen's total points and reward history."""
-
+    """Return the authenticated citizen's total points, rewards catalog, claims, and transaction history."""
     try:
         response = (
             supabase
@@ -332,12 +410,50 @@ def get_my_rewards(
 
         rewards = response.data or []
         total_points = sum(int(reward.get("points") or 0) for reward in rewards)
+        all_time_earned = sum(int(r.get("points") or 0) for r in rewards if int(r.get("points") or 0) > 0)
+        total_spent = abs(sum(int(r.get("points") or 0) for r in rewards if int(r.get("points") or 0) < 0))
+
+        claims = []
+        for r in rewards:
+            pts = int(r.get("points") or 0)
+            reason = r.get("reason") or ""
+            if pts < 0 or reason.startswith("Claimed:"):
+                status = "Claimed"
+                clean_reason = reason
+                if "[Status: " in reason:
+                    try:
+                        status = reason.split("[Status: ")[1].split("]")[0].strip()
+                        clean_reason = reason.split("[Status: ")[0].strip()
+                    except Exception:
+                        status = "Claimed"
+
+                ref_code = "N/A"
+                reward_name = clean_reason
+                if " (Ref: " in clean_reason:
+                    parts = clean_reason.split(" (Ref: ")
+                    reward_name = parts[0].replace("Claimed: ", "").strip()
+                    ref_code = parts[1].rstrip(")")
+                elif clean_reason.startswith("Claimed: "):
+                    reward_name = clean_reason.replace("Claimed: ", "").strip()
+
+                claims.append({
+                    "id": r.get("id"),
+                    "reward_name": reward_name,
+                    "points_spent": abs(pts),
+                    "claim_code": ref_code,
+                    "status": status,
+                    "created_at": r.get("created_at"),
+                })
 
         return {
             "success": True,
             "total_points": total_points,
+            "all_time_earned": all_time_earned,
+            "total_spent": total_spent,
             "reward_count": len(rewards),
             "rewards": rewards,
+            "claims": claims,
+            "catalog": REWARD_CATALOG,
         }
 
     except Exception as error:
@@ -348,38 +464,174 @@ def get_my_rewards(
         )
 
 
+@router.post("/rewards/claim")
+def claim_reward(
+    payload: RewardClaimRequest,
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """Claim a reward from the catalog using accumulated civic points."""
+    try:
+        reward = next((r for r in REWARD_CATALOG if r["id"] == payload.reward_id), None)
+        if not reward:
+            raise HTTPException(status_code=404, detail="Reward not found in catalog.")
 
-# ============================================================
-# GET CIVIC LEADERBOARD
-# ============================================================
+        if reward.get("status") != "Active":
+            raise HTTPException(status_code=400, detail="This reward is currently unavailable.")
+
+        res = (
+            supabase
+            .table("rewards")
+            .select("points")
+            .eq("user_id", current_user["id"])
+            .execute()
+        )
+        current_rows = res.data or []
+        current_points = sum(int(r.get("points") or 0) for r in current_rows)
+        points_cost = int(reward["points_required"])
+
+        if current_points < points_cost:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient points. You have {current_points} points, but this reward requires {points_cost} points."
+            )
+
+        # Guard against duplicate claims from rapid repeated requests / double clicks
+        recent_check = (
+            supabase.table("rewards")
+            .select("id, reason, created_at")
+            .eq("user_id", current_user["id"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if recent_check.data:
+            last_record = recent_check.data[0]
+            last_reason = last_record.get("reason") or ""
+            last_created = last_record.get("created_at")
+            if f"Claimed: {reward['name']}" in last_reason and last_created:
+                try:
+                    last_time = datetime.fromisoformat(last_created.replace("Z", "+00:00"))
+                    diff_seconds = (datetime.now(timezone.utc) - last_time).total_seconds()
+                    if diff_seconds < 5:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Please wait a moment before claiming this reward again."
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+        today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        short_id = uuid.uuid4().hex[:4].upper()
+        claim_code = f"CLM-{today_str}-{short_id}"
+        claim_reason = f"Claimed: {reward['name']} (Ref: {claim_code})"
+
+        insert_res = (
+            supabase
+            .table("rewards")
+            .insert({
+                "user_id": current_user["id"],
+                "points": -points_cost,
+                "reason": claim_reason,
+                "complaint_id": None,
+            })
+            .execute()
+        )
+
+        new_row = insert_res.data[0] if insert_res.data else {}
+
+        try:
+            supabase.table("notifications").insert({
+                "user_id": current_user["id"],
+                "title": "Reward Claimed!",
+                "message": f"You successfully claimed '{reward['name']}' for {points_cost} points. Ref: {claim_code}",
+                "type": "reward_claim",
+            }).execute()
+        except Exception as notif_err:
+            print("Warning: could not insert reward claim notification:", notif_err)
+
+        new_total_points = current_points - points_cost
+        claim_item = {
+            "id": new_row.get("id"),
+            "reward_name": reward["name"],
+            "claim_code": claim_code,
+            "points_spent": points_cost,
+            "status": "Claimed",
+            "created_at": new_row.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        }
+
+        return {
+            "success": True,
+            "message": f"Successfully claimed {reward['name']}! Your reference code is {claim_code}.",
+            "claim": claim_item,
+            "total_points": new_total_points,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Claim reward error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to claim reward: {str(error)}")
+
 
 @router.get("/leaderboard")
-def get_leaderboard(current_user: dict = Depends(require_role("citizen"))):
-    """Return the civic leaderboard with bounded database reads."""
+def get_leaderboard(
+    period: Optional[str] = Query("all", pattern="^(all|month)$"),
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """Return the civic leaderboard with bounded database reads and optional period filter."""
     try:
         users = (supabase.table("users").select("id, name, profile_image_url, created_at").eq("role", "citizen").eq("is_active", True).limit(500).execute().data or [])
-        rewards = (supabase.table("rewards").select("user_id, points").limit(5000).execute().data or [])
-        complaints = (supabase.table("complaints").select("citizen_id, status").limit(5000).execute().data or [])
+        rewards = (supabase.table("rewards").select("user_id, points, created_at").limit(5000).execute().data or [])
+        complaints = (supabase.table("complaints").select("citizen_id, status, created_at").limit(5000).execute().data or [])
+
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = now - timedelta(days=30)
+
+        if period == "month":
+            rewards = [r for r in rewards if r.get("created_at") and datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")) >= thirty_days_ago]
+            complaints = [c for c in complaints if c.get("created_at") and datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")) >= thirty_days_ago]
 
         points = {}
+        all_time_points = {}
         for r in rewards:
-            uid=r.get("user_id")
-            if uid: points[uid]=points.get(uid,0)+int(r.get("points") or 0)
+            uid = r.get("user_id")
+            if uid:
+                pts = int(r.get("points") or 0)
+                points[uid] = points.get(uid, 0) + pts
+                if pts > 0:
+                    all_time_points[uid] = all_time_points.get(uid, 0) + pts
+
         submitted, resolved = {}, {}
         for c in complaints:
-            uid=c.get("citizen_id")
+            uid = c.get("citizen_id")
             if not uid: continue
-            submitted[uid]=submitted.get(uid,0)+1
-            if c.get("status")=="Resolved": resolved[uid]=resolved.get(uid,0)+1
+            submitted[uid] = submitted.get(uid, 0) + 1
+            if c.get("status") == "Resolved": resolved[uid] = resolved.get(uid, 0) + 1
 
-        board=[]
+        board = []
         for u in users:
-            uid=u["id"]
-            board.append({"user_id":uid,"name":u.get("name") or "Citizen","email":None,"profile_image_url":u.get("profile_image_url"),"total_points":points.get(uid,0),"complaints_submitted":submitted.get(uid,0),"complaints_resolved":resolved.get(uid,0),"member_since":u.get("created_at")})
-        board.sort(key=lambda x:(-x["total_points"],-x["complaints_resolved"],-x["complaints_submitted"],x["name"].lower()))
-        for i,c in enumerate(board,1): c["rank"]=i
-        rank=next((c["rank"] for c in board if c["user_id"]==current_user["id"]),None)
-        return {"success":True,"total_citizens":len(board),"current_user_rank":rank,"leaderboard":board}
+            uid = u["id"]
+            board.append({
+                "user_id": uid,
+                "name": u.get("name") or "Citizen",
+                "email": None,
+                "profile_image_url": u.get("profile_image_url"),
+                "total_points": points.get(uid, 0),
+                "all_time_points": all_time_points.get(uid, 0),
+                "complaints_submitted": submitted.get(uid, 0),
+                "complaints_resolved": resolved.get(uid, 0),
+                "member_since": u.get("created_at")
+            })
+        board.sort(key=lambda x: (-x["total_points"], -x["complaints_resolved"], -x["complaints_submitted"], x["name"].lower()))
+        for i, c in enumerate(board, 1): c["rank"] = i
+        rank = next((c["rank"] for c in board if c["user_id"] == current_user["id"]), None)
+        return {
+            "success": True,
+            "total_citizens": len(board),
+            "current_user_rank": rank,
+            "period": period,
+            "leaderboard": board
+        }
     except Exception as error:
         print("Get leaderboard error:", error)
         raise HTTPException(status_code=500, detail="Failed to fetch leaderboard.")
@@ -401,7 +653,7 @@ class CommunityCommentCreate(BaseModel):
 def _community_complaint(complaint_id: str):
     response = (
         supabase.table("complaints")
-        .select("id, citizen_id, title, description, status, priority, created_at, category_id, categories(id, name)")
+        .select("id, citizen_id, complaint_code, title, description, status, priority, photo_url, latitude, longitude, address, created_at, category_id, categories(id, name)")
         .eq("id", complaint_id)
         .limit(1)
         .execute()
@@ -415,7 +667,16 @@ def _community_complaint(complaint_id: str):
 def get_community_complaints(current_user: dict = Depends(require_role("citizen"))):
     """Return a bounded recent community feed and its interaction counts."""
     try:
-        complaints=(supabase.table("complaints").select("id, title, description, status, priority, created_at, category_id, categories(id, name)").neq("status","Rejected").order("created_at",desc=True).limit(50).execute().data or [])
+        complaints = (
+            supabase.table("complaints")
+            .select("id, citizen_id, complaint_code, title, description, status, priority, photo_url, latitude, longitude, address, created_at, category_id, categories(id, name)")
+            .neq("status", "Rejected")
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
         if not complaints: return {"success":True,"count":0,"complaints":[]}
         ids=[c["id"] for c in complaints]
         supports=supabase.table("complaint_supports").select("complaint_id,user_id").in_("complaint_id",ids).limit(5000).execute().data or []
@@ -433,7 +694,16 @@ def get_community_complaints(current_user: dict = Depends(require_role("citizen"
         for r in comments:
             cid=r.get("complaint_id"); cc[cid]=cc.get(cid,0)+1
         for c in complaints:
-            cid=c["id"]; c.update({"support_count":sc.get(cid,0),"genuine_count":gc.get(cid,0),"not_genuine_count":ngc.get(cid,0),"comment_count":cc.get(cid,0),"user_supported":cid in us,"user_feedback":uf.get(cid)})
+            cid=c["id"]
+            c.update({
+                "support_count":sc.get(cid,0),
+                "genuine_count":gc.get(cid,0),
+                "not_genuine_count":ngc.get(cid,0),
+                "comment_count":cc.get(cid,0),
+                "user_supported":cid in us,
+                "user_feedback":uf.get(cid),
+                "is_owner": c.get("citizen_id") == current_user["id"],
+            })
         return {"success":True,"count":len(complaints),"complaints":complaints}
     except HTTPException: raise
     except Exception as error:
@@ -479,10 +749,12 @@ def get_community_details(
                 "updated_at": row.get("updated_at"),
             })
 
-        complaint.pop("citizen_id", None)
+        is_owner = (complaint.get("citizen_id") == current_user["id"])
+        complaint["is_owner"] = is_owner
         return {
             "success": True,
             "complaint": complaint,
+            "is_owner": is_owner,
             "support_count": len(supports),
             "user_supported": any(row.get("user_id") == current_user["id"] for row in supports),
             "genuine_count": genuine_count,
@@ -593,7 +865,11 @@ def add_community_comment(
             "user_id": current_user["id"],
             "comment": comment_data.comment.strip(),
         }).execute()
-        return {"success": True, "comment": response.data[0] if response.data else None}
+        new_comment = response.data[0] if response.data else None
+        if new_comment:
+            new_comment["user_name"] = current_user.get("name") or "Citizen"
+            new_comment["profile_image_url"] = current_user.get("profile_image_url")
+        return {"success": True, "comment": new_comment}
     except HTTPException:
         raise
     except Exception as error:
@@ -978,3 +1254,109 @@ def update_complaint_status(
             ),
         )
 
+
+@router.get("/{complaint_id}/completion-evidence")
+def get_complaint_completion_evidence(
+    complaint_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Retrieve work completion evidence for a complaint.
+    Accessible by:
+    - The citizen who filed the complaint
+    - The worker assigned to the complaint
+    - Any administrator
+    """
+    try:
+        comp_res = (
+            supabase.table("complaints")
+            .select("id, complaint_code, title, status, photo_url, citizen_id, assigned_worker_id, verified_at, verified_by")
+            .eq("id", complaint_id)
+            .limit(1)
+            .execute()
+        )
+        if not comp_res.data:
+            raise HTTPException(status_code=404, detail="Complaint not found.")
+
+        complaint = comp_res.data[0]
+
+        # Role-based authorization: citizen owner, assigned worker, or admin
+        user_role = current_user.get("role")
+        user_id = current_user.get("id")
+
+        if user_role == "citizen" and complaint.get("citizen_id") != user_id:
+            raise HTTPException(status_code=403, detail="You can only view completion evidence for your own complaints.")
+
+        if user_role == "worker":
+            worker_res = (
+                supabase.table("workers")
+                .select("id")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            worker_id = worker_res.data[0]["id"] if worker_res.data else None
+            if complaint.get("assigned_worker_id") != worker_id:
+                raise HTTPException(status_code=403, detail="You can only view completion evidence for complaints assigned to you.")
+
+        # Search complaint_status_history for latest completion evidence
+        hist_res = (
+            supabase.table("complaint_status_history")
+            .select("id, old_status, new_status, remarks, created_at, changed_by")
+            .eq("complaint_id", complaint_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        evidence = None
+        rework_reason = None
+        history_rows = hist_res.data or []
+
+        for row in history_rows:
+            rem = row.get("remarks") or ""
+            if "completion_evidence" in rem:
+                try:
+                    evidence = json.loads(rem)
+                    break
+                except Exception:
+                    pass
+
+        for row in history_rows:
+            rem = row.get("remarks") or ""
+            if "rework_required" in rem:
+                try:
+                    parsed = json.loads(rem)
+                    rework_reason = parsed.get("rework_reason")
+                    break
+                except Exception:
+                    pass
+
+        # Determine verification status
+        comp_status = complaint.get("status")
+        if comp_status == "Verified":
+            verification_status = "verified"
+        elif comp_status == "In Progress" and rework_reason:
+            verification_status = "rework_required"
+        elif comp_status == "Resolved" and evidence:
+            verification_status = "submitted"
+        else:
+            verification_status = "pending" if not evidence else "submitted"
+
+        return {
+            "success": True,
+            "complaint_id": complaint_id,
+            "complaint_code": complaint.get("complaint_code"),
+            "status": comp_status,
+            "original_photo_url": complaint.get("photo_url"),
+            "evidence": evidence,
+            "rework_reason": rework_reason,
+            "verification_status": verification_status,
+            "is_verified": comp_status == "Verified",
+            "verified_at": complaint.get("verified_at"),
+            "verified_by": complaint.get("verified_by"),
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Get completion evidence error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch completion evidence: {str(error)}")

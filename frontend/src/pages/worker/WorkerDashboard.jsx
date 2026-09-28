@@ -33,6 +33,9 @@ import {
   Wrench,
   X,
   XCircle,
+  Pencil,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -109,6 +112,25 @@ function WorkerDashboard() {
   const [remarks, setRemarks] = useState("");
   const [uploadedPhotoPreview, setUploadedPhotoPreview] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+
+  // Profile Edit State
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [editProfileForm, setEditProfileForm] = useState({
+    name: "",
+    phone: "",
+    specialization: "",
+    is_available: true,
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  // Work Completion Evidence State
+  const [evidenceFile, setEvidenceFile] = useState(null);
+  const [evidenceFilePreview, setEvidenceFilePreview] = useState(null);
+  const [workPerformed, setWorkPerformed] = useState("");
+  const [submittingEvidence, setSubmittingEvidence] = useState(false);
+  const [selectedEvidence, setSelectedEvidence] = useState(null);
+  const [loadingEvidence, setLoadingEvidence] = useState(false);
 
   // Map view selection
   const [mapSelectedComplaint, setMapSelectedComplaint] = useState(null);
@@ -219,16 +241,44 @@ function WorkerDashboard() {
     }
   };
 
+  // Load Complaint Evidence
+  const loadComplaintEvidence = async (complaintId) => {
+    if (!complaintId || !token) return;
+    try {
+      setLoadingEvidence(true);
+      setSelectedEvidence(null);
+      const res = await axios.get(
+        `${API_BASE_URL}/api/worker/complaints/${complaintId}/completion-evidence`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data?.success && res.data.evidence) {
+        setSelectedEvidence({
+          ...res.data.evidence,
+          rework_reason: res.data.rework_reason,
+          is_verified: res.data.is_verified,
+        });
+      }
+    } catch (err) {
+      console.error("Complaint evidence error:", err);
+    } finally {
+      setLoadingEvidence(false);
+    }
+  };
+
   const openComplaintModal = async (complaint) => {
     setSelectedComplaint(complaint);
     setRemarks("");
     setHistoryError("");
-    await loadComplaintHistory(complaint.id);
+    await Promise.all([
+      loadComplaintHistory(complaint.id),
+      loadComplaintEvidence(complaint.id),
+    ]);
   };
 
   const closeComplaintModal = () => {
     setSelectedComplaint(null);
     setStatusHistory([]);
+    setSelectedEvidence(null);
     setHistoryError("");
     setRemarks("");
   };
@@ -237,6 +287,9 @@ function WorkerDashboard() {
     setActionComplaint(complaint);
     setActionModalType(type);
     setRemarks("");
+    setWorkPerformed("");
+    setEvidenceFile(null);
+    setEvidenceFilePreview(null);
     setUploadedPhotoPreview(null);
   };
 
@@ -244,7 +297,200 @@ function WorkerDashboard() {
     setActionModalType(null);
     setActionComplaint(null);
     setRemarks("");
+    setWorkPerformed("");
+    setEvidenceFile(null);
+    setEvidenceFilePreview(null);
     setUploadedPhotoPreview(null);
+  };
+
+  // Profile Edit Handlers
+  const handleOpenEditProfile = () => {
+    setEditProfileForm({
+      name: user?.name || "",
+      phone: user?.phone || "",
+      specialization: worker?.specialization || "",
+      is_available: worker?.is_available !== undefined ? worker.is_available : true,
+    });
+    setEditProfileOpen(true);
+  };
+
+  const handleSaveProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!token) return;
+    try {
+      setSavingProfile(true);
+      setError("");
+      setSuccess("");
+
+      const res = await axios.patch(
+        `${API_BASE_URL}/api/worker/profile`,
+        editProfileForm,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (res.data?.success) {
+        setSuccess("Profile updated successfully!");
+        setWorker(res.data.worker);
+        setUser(res.data.user);
+        const saved = localStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          localStorage.setItem("user", JSON.stringify({ ...parsed, ...res.data.user }));
+        }
+        setEditProfileOpen(false);
+      }
+    } catch (err) {
+      console.error("Save profile error:", err);
+      setError(err.response?.data?.detail || "Failed to update profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // Photo upload and delete
+  const handleProfilePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !token) return;
+    try {
+      setUploadingPhoto(true);
+      setError("");
+      setSuccess("");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await axios.post(
+        `${API_BASE_URL}/api/worker/profile/photo`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (res.data?.success) {
+        setUser((prev) => ({ ...prev, profile_image_url: res.data.profile_image_url }));
+        const saved = localStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          parsed.profile_image_url = res.data.profile_image_url;
+          localStorage.setItem("user", JSON.stringify(parsed));
+        }
+        setSuccess("Profile picture updated successfully!");
+      }
+    } catch (err) {
+      console.error("Photo upload error:", err);
+      setError(err.response?.data?.detail || "Failed to upload profile picture.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleDeleteProfilePhoto = async () => {
+    if (!token) return;
+    try {
+      setUploadingPhoto(true);
+      setError("");
+      setSuccess("");
+      const res = await axios.delete(`${API_BASE_URL}/api/worker/profile/photo`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.data?.success) {
+        setUser((prev) => ({ ...prev, profile_image_url: null }));
+        const saved = localStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          parsed.profile_image_url = null;
+          localStorage.setItem("user", JSON.stringify(parsed));
+        }
+        setSuccess("Profile picture removed.");
+      }
+    } catch (err) {
+      console.error("Delete photo error:", err);
+      setError(err.response?.data?.detail || "Failed to remove profile picture.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleToggleAvailability = async () => {
+    if (!token || !worker) return;
+    const newAvail = !worker.is_available;
+    try {
+      const res = await axios.patch(
+        `${API_BASE_URL}/api/worker/profile`,
+        { is_available: newAvail },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data?.success) {
+        setWorker(res.data.worker);
+        setSuccess(`Duty status set to ${newAvail ? "Active Field Duty" : "Off Duty"}.`);
+      }
+    } catch (err) {
+      console.error("Availability toggle error:", err);
+      setError(err.response?.data?.detail || "Failed to update availability.");
+    }
+  };
+
+  // Work Completion Evidence Handlers
+  const handleEvidencePhotoSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setEvidenceFile(file);
+      setEvidenceFilePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleSubmitCompletionEvidence = async (complaintId) => {
+    if (!complaintId || !token) return;
+    if (!evidenceFile) {
+      setError("Please capture or upload a completion photo as evidence.");
+      return;
+    }
+    if (!workPerformed.trim()) {
+      setError("Please describe the work performed on-site.");
+      return;
+    }
+
+    try {
+      setSubmittingEvidence(true);
+      setError("");
+      setSuccess("");
+
+      const formData = new FormData();
+      formData.append("file", evidenceFile);
+      formData.append("work_performed", workPerformed.trim());
+      if (remarks.trim()) {
+        formData.append("remarks", remarks.trim());
+      }
+
+      const res = await axios.post(
+        `${API_BASE_URL}/api/worker/complaints/${complaintId}/completion-evidence`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (res.data?.success) {
+        setSuccess("Work completion evidence submitted successfully! Admin has been notified for municipal verification.");
+        closeActionModal();
+        await loadWorkerData(token, true);
+        if (selectedComplaint && selectedComplaint.id === complaintId) {
+          openComplaintModal({ ...selectedComplaint, status: "Resolved" });
+        }
+      }
+    } catch (err) {
+      console.error("Submit evidence error:", err);
+      setError(err.response?.data?.detail || "Failed to submit completion evidence.");
+    } finally {
+      setSubmittingEvidence(false);
+    }
   };
 
   const handleLogout = () => {
@@ -1528,79 +1774,224 @@ function WorkerDashboard() {
           {/* ============================================================ */}
           {activeTab === "profile" && (
             <div className="space-y-6">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">Worker Profile</h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  Official municipal credentials and active duty status.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">Worker Profile & Credentials</h1>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                    Municipal field operative profile, credentials, and live duty status.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleToggleAvailability}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center gap-2 shadow-2xs ${
+                      worker?.is_available
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                        : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        worker?.is_available ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                      }`}
+                    />
+                    {worker?.is_available ? "Duty: Active Field Duty" : "Duty: Off Duty"}
+                  </button>
+                  <button
+                    onClick={handleOpenEditProfile}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edit Profile
+                  </button>
+                </div>
               </div>
 
-              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xs">
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xs space-y-8">
+                {/* Header Card with Photo Upload/Delete */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-slate-100">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white font-extrabold text-2xl flex items-center justify-center shadow-sm">
-                      {user?.name?.charAt(0) || "W"}
+                  <div className="flex items-center gap-5">
+                    {/* Photo with Overlay Controls */}
+                    <div className="relative group shrink-0">
+                      {user?.profile_image_url ? (
+                        <img
+                          src={user.profile_image_url}
+                          alt={user.name || "Worker"}
+                          className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-500 shadow-md"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white font-extrabold text-2xl flex items-center justify-center shadow-md">
+                          {user?.name?.charAt(0) || "W"}
+                        </div>
+                      )}
+
+                      {/* Photo Actions Overlay */}
+                      <div className="absolute inset-0 bg-slate-900/60 rounded-2xl opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1.5">
+                        <label
+                          className="p-1.5 bg-white text-slate-800 rounded-lg cursor-pointer hover:bg-slate-100 transition shadow-sm"
+                          title="Upload new photo"
+                        >
+                          <Camera className="w-4 h-4 text-blue-600" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={uploadingPhoto}
+                            onChange={handleProfilePhotoUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {user?.profile_image_url && (
+                          <button
+                            type="button"
+                            onClick={handleDeleteProfilePhoto}
+                            disabled={uploadingPhoto}
+                            className="p-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition shadow-sm"
+                            title="Remove photo"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
                     <div>
-                      <h2 className="text-xl font-bold text-slate-900">{user?.name || "Worker"}</h2>
-                      <p className="text-xs text-slate-500">{user?.email}</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 font-semibold text-xs rounded-full border border-blue-200">
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-xl font-extrabold text-slate-900">{user?.name || "Field Worker"}</h2>
+                        <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 font-bold text-xs rounded-full border border-blue-200">
+                          #{worker?.worker_code || "W-100"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">{user?.email}</p>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 font-semibold text-xs rounded-lg">
                           {worker?.department || "Department of Public Works"}
                         </span>
-                        <span className="text-xs font-mono text-slate-500 font-medium">
-                          #{worker?.worker_code || "W-100"}
+                        <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-semibold text-xs rounded-lg border border-indigo-100">
+                          {worker?.specialization || "Civil Maintenance"}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Active Field Duty
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-6 text-sm">
-                  <div>
-                    <span className="text-slate-400 block text-xs">Assigned Department</span>
-                    <span className="font-semibold text-slate-800 mt-1 block">
-                      {worker?.department || "Municipal Sanitation & Roads"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-xs">Specialization</span>
-                    <span className="font-semibold text-slate-800 mt-1 block">
-                      {worker?.specialization || "Civil Maintenance"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-xs">Worker ID</span>
-                    <span className="font-semibold font-mono text-slate-800 mt-1 block">
-                      {worker?.worker_code || "N/A"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-xs">Active Tasks</span>
-                    <span className="font-semibold text-slate-800 mt-1 block">
-                      {stats.assigned + stats.inProgress} Complaints
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-xs">Resolved Total</span>
-                    <span className="font-semibold text-emerald-600 mt-1 block">
-                      {stats.completed} Complaints
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-xs">Role Level</span>
-                    <span className="font-semibold text-slate-800 mt-1 block capitalize">
-                      {user?.role || "Field Officer"}
+                  <div className="flex flex-col sm:items-end gap-2">
+                    <div
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                        worker?.is_available
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-slate-100 text-slate-600 border-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          worker?.is_available ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                        }`}
+                      />
+                      {worker?.is_available ? "Active Field Duty" : "Off Duty / Standby"}
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      Account Status: <strong className="text-emerald-600 font-semibold">Active Official</strong>
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between">
+                {/* Performance Metrics Stats Grid */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Field Operational Statistics
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                      <span className="text-slate-400 text-xs block">Assigned Total</span>
+                      <span className="text-2xl font-black text-slate-800 mt-1 block">
+                        {worker?.stats?.assigned ?? stats.assigned}
+                      </span>
+                    </div>
+                    <div className="bg-amber-50/60 border border-amber-100 rounded-2xl p-4">
+                      <span className="text-amber-700 text-xs font-semibold block">In Progress</span>
+                      <span className="text-2xl font-black text-amber-700 mt-1 block">
+                        {worker?.stats?.in_progress ?? stats.inProgress}
+                      </span>
+                    </div>
+                    <div className="bg-blue-50/60 border border-blue-100 rounded-2xl p-4">
+                      <span className="text-blue-700 text-xs font-semibold block">Resolved (Under Review)</span>
+                      <span className="text-2xl font-black text-blue-700 mt-1 block">
+                        {worker?.stats?.resolved ?? complaints.filter((c) => c.status === "Resolved").length}
+                      </span>
+                    </div>
+                    <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-4">
+                      <span className="text-emerald-700 text-xs font-semibold block">Verified by Admin</span>
+                      <span className="text-2xl font-black text-emerald-700 mt-1 block">
+                        {worker?.stats?.verified ?? complaints.filter((c) => c.status === "Verified").length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Profile Details Grid */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Municipal Records & Contact Information
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 text-sm bg-slate-50/60 border border-slate-100 rounded-2xl p-5">
+                    <div>
+                      <span className="text-slate-400 block text-xs">Full Name</span>
+                      <span className="font-semibold text-slate-800 mt-1 block">
+                        {user?.name || "N/A"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Email Address</span>
+                      <span className="font-semibold text-slate-800 mt-1 block truncate">
+                        {user?.email || "N/A"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Phone Number</span>
+                      <span className="font-semibold text-slate-800 mt-1 block">
+                        {user?.phone || "Not configured"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Worker Code</span>
+                      <span className="font-semibold font-mono text-blue-600 mt-1 block">
+                        #{worker?.worker_code || "W-100"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Assigned Department</span>
+                      <span className="font-semibold text-slate-800 mt-1 block">
+                        {worker?.department || "Department of Public Works"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Technical Specialization</span>
+                      <span className="font-semibold text-slate-800 mt-1 block">
+                        {worker?.specialization || "Civil Maintenance"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Member Since</span>
+                      <span className="font-semibold text-slate-800 mt-1 block">
+                        {formatDate(user?.created_at)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">Rework Requests Count</span>
+                      <span className="font-semibold text-rose-600 mt-1 block">
+                        {worker?.stats?.rework_count ?? 0}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-xs">System Role</span>
+                      <span className="font-semibold text-slate-800 mt-1 block capitalize">
+                        {user?.role || "worker"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                   <button
                     onClick={() => loadWorkerData(token, true)}
                     className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition inline-flex items-center gap-2"
@@ -1608,15 +1999,144 @@ function WorkerDashboard() {
                     <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
                     Refresh Record
                   </button>
-                  <button
-                    onClick={handleLogout}
-                    className="px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold hover:bg-rose-100 transition inline-flex items-center gap-2"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Sign Out
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleOpenEditProfile}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Update Profile
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold hover:bg-rose-100 transition inline-flex items-center gap-2"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Sign Out
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {/* EDIT PROFILE MODAL */}
+              {editProfileOpen && (
+                <div
+                  className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-2xs animate-in fade-in"
+                  onClick={() => setEditProfileOpen(false)}
+                >
+                  <div
+                    className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div>
+                        <h3 className="font-extrabold text-lg text-slate-900">Edit Worker Profile</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Update your contact details and active duty availability.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setEditProfileOpen(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveProfile} className="space-y-4 pt-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Full Name
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editProfileForm.name}
+                          onChange={(e) =>
+                            setEditProfileForm({ ...editProfileForm, name: e.target.value })
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Phone Number
+                        </label>
+                        <input
+                          type="tel"
+                          value={editProfileForm.phone}
+                          onChange={(e) =>
+                            setEditProfileForm({ ...editProfileForm, phone: e.target.value })
+                          }
+                          placeholder="+91 98765 43210"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Technical Specialization
+                        </label>
+                        <input
+                          type="text"
+                          value={editProfileForm.specialization}
+                          onChange={(e) =>
+                            setEditProfileForm({ ...editProfileForm, specialization: e.target.value })
+                          }
+                          placeholder="e.g. Asphalt Paving, Electrical, Drainage"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="pt-2">
+                        <label className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition">
+                          <input
+                            type="checkbox"
+                            checked={editProfileForm.is_available}
+                            onChange={(e) =>
+                              setEditProfileForm({
+                                ...editProfileForm,
+                                is_available: e.target.checked,
+                              })
+                            }
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 block">
+                              Active Field Duty Availability
+                            </span>
+                            <span className="text-[11px] text-slate-400 block">
+                              Mark yourself available for new emergency and routine municipal dispatches.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditProfileOpen(false)}
+                          disabled={savingProfile}
+                          className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingProfile}
+                          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${savingProfile ? "animate-spin" : ""}`}
+                          />
+                          {savingProfile ? "Saving..." : "Save Changes"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1732,6 +2252,112 @@ function WorkerDashboard() {
                 </p>
               </div>
 
+              {/* Rework Alert Banner */}
+              {selectedEvidence?.rework_reason && (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider">
+                        Rework Requested by Municipal Admin
+                      </h4>
+                      <p className="text-xs text-rose-700 mt-1">
+                        {selectedEvidence.rework_reason}
+                      </p>
+                    </div>
+                  </div>
+                  {selectedComplaint.status === "In Progress" && (
+                    <button
+                      onClick={() => {
+                        closeComplaintModal();
+                        openActionModal(selectedComplaint, "resolve");
+                      }}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shrink-0 shadow-xs"
+                    >
+                      Resubmit Evidence
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Work Completion Evidence (Before & After Preview) */}
+              {selectedEvidence?.photo_url && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+                    <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-emerald-600" />
+                      Work Completion Evidence (Field Verification)
+                    </h4>
+                    {selectedComplaint.status === "Verified" ? (
+                      <span className="px-2.5 py-1 bg-purple-50 text-purple-700 font-bold text-xs rounded-full border border-purple-200 flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                        Verified by Admin
+                      </span>
+                    ) : selectedComplaint.status === "Resolved" ? (
+                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 flex items-center gap-1.5">
+                        <Clock3 className="w-3.5 h-3.5 text-amber-600" />
+                        Awaiting Admin Verification
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Before & After Photo Comparison */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                        Before (Citizen Report)
+                      </span>
+                      <img
+                        src={
+                          selectedComplaint.photo_url ||
+                          getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                        }
+                        alt="Before Work"
+                        className="w-full h-44 rounded-xl object-cover border border-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-1.5">
+                        After (Worker Completion Evidence)
+                      </span>
+                      <img
+                        src={selectedEvidence.photo_url}
+                        alt="After Completion Evidence"
+                        className="w-full h-44 rounded-xl object-cover border border-emerald-300 shadow-2xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Work Performed Description */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 text-xs">
+                    <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px] block mb-1">
+                      Work Performed On-Site
+                    </span>
+                    <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">
+                      {selectedEvidence.work_performed || "Repairs and restoration completed on site."}
+                    </p>
+                  </div>
+
+                  {/* Completion Remarks if any */}
+                  {selectedEvidence.completion_remarks && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3.5 text-xs">
+                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px] block mb-1">
+                        Completion Remarks
+                      </span>
+                      <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">
+                        {selectedEvidence.completion_remarks}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedEvidence.submitted_at && (
+                    <p className="text-[10px] text-slate-400">
+                      Evidence submitted on {formatDateTime(selectedEvidence.submitted_at)}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Status History Timeline (Matches Screen 4 & 5) */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -1819,7 +2445,7 @@ function WorkerDashboard() {
                       }}
                       className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
                     >
-                      Mark as Resolved
+                      {selectedEvidence?.rework_reason ? "Submit Revised Evidence" : "Mark as Resolved"}
                     </button>
                     <button
                       onClick={() => {
@@ -1857,7 +2483,7 @@ function WorkerDashboard() {
                   {actionModalType === "in_progress"
                     ? "Update Work Progress"
                     : actionModalType === "resolve"
-                    ? "Mark as Resolved"
+                    ? "Submit Work Completion Evidence"
                     : "Reject Complaint"}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1872,7 +2498,7 @@ function WorkerDashboard() {
               </button>
             </div>
 
-            {/* Stepper Display (Matches Screen 5 & 6) */}
+            {/* Stepper Display */}
             <div className="px-6 pt-5 pb-2">
               <div className="flex items-center justify-between relative">
                 <div className="absolute left-6 right-6 top-3 h-0.5 bg-slate-200 -z-0" />
@@ -1910,80 +2536,172 @@ function WorkerDashboard() {
                   >
                     3
                   </div>
-                  <span className="text-[10px] font-semibold text-slate-500 mt-1">Resolved</span>
+                  <span className="text-[10px] font-semibold text-slate-500 mt-1">
+                    {actionModalType === "resolve" ? "Verification" : "Resolved"}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Form Fields */}
             <div className="p-6 space-y-4">
-              {/* Remarks Textarea */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  {actionModalType === "in_progress"
-                    ? "Work Progress Details"
-                    : actionModalType === "resolve"
-                    ? "Work Completion Details"
-                    : "Rejection Reason"}
-                </label>
-                <textarea
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  rows={3}
-                  placeholder={
-                    actionModalType === "in_progress"
-                      ? "Describe the work you have initiated..."
-                      : actionModalType === "resolve"
-                      ? "Describe the completed repair or resolution..."
-                      : "Provide a clear reason why this complaint cannot be addressed..."
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none transition"
-                />
-              </div>
+              {/* If resolve: Show Citizen Before Photo for reference */}
+              {actionModalType === "resolve" && actionComplaint.photo_url && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Initial Citizen Report (Before)
+                  </span>
+                  <img
+                    src={actionComplaint.photo_url}
+                    alt="Before work"
+                    className="w-full h-28 object-cover rounded-xl border border-slate-200"
+                  />
+                </div>
+              )}
 
-              {/* Upload Photo (Matches Screen 5 & 6) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  {actionModalType === "resolve"
-                    ? "Upload Completion Photo"
-                    : "Add Progress Photo (Optional)"}
-                </label>
-
-                {uploadedPhotoPreview ? (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 h-36">
-                    <img
-                      src={uploadedPhotoPreview}
-                      alt="Uploaded preview"
-                      className="w-full h-full object-cover"
+              {/* Resolution Form: Required Work Performed & Completion Photo */}
+              {actionModalType === "resolve" ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Work Performed On-Site <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea
+                      required
+                      value={workPerformed}
+                      onChange={(e) => setWorkPerformed(e.target.value)}
+                      rows={3}
+                      placeholder="Detail specific work performed (e.g. repaved 15m asphalt, cleared storm drain blockage, tested road safety)..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white resize-none transition"
                     />
-                    <button
-                      onClick={() => setUploadedPhotoPreview(null)}
-                      className="absolute top-2 right-2 p-1.5 bg-slate-900/70 hover:bg-slate-900 text-white rounded-full transition"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
                   </div>
-                ) : (
-                  <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-blue-50/30 transition text-center">
-                    <UploadCloud className="w-8 h-8 text-blue-500 mb-1" />
-                    <p className="text-xs font-bold text-slate-700">Click to upload photo</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG (Max 10 MB)</p>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Work Completion Evidence Photo <span className="text-rose-500">*</span>
+                    </label>
+                    {evidenceFilePreview ? (
+                      <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-400 h-40 group">
+                        <img
+                          src={evidenceFilePreview}
+                          alt="Completion Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+                          <label className="cursor-pointer px-3 py-1.5 bg-white text-slate-800 rounded-xl text-xs font-bold shadow-md hover:bg-slate-50">
+                            Change Photo
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleEvidencePhotoSelect}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEvidenceFile(null);
+                              setEvidenceFilePreview(null);
+                            }}
+                            className="p-1.5 bg-rose-600 text-white rounded-xl hover:bg-rose-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 hover:bg-emerald-50 rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer transition text-center">
+                        <Camera className="w-8 h-8 text-emerald-600 mb-1.5" />
+                        <p className="text-xs font-bold text-slate-800">
+                          Upload Work Completion Photo
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG, WebP up to 10 MB</p>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEvidencePhotoSelect}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Completion Notes / Remarks (Optional)
+                    </label>
+                    <textarea
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      rows={2}
+                      placeholder="Additional notes for municipal inspector or citizen..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white resize-none transition"
                     />
-                  </label>
-                )}
-              </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      {actionModalType === "in_progress"
+                        ? "Work Progress Details"
+                        : "Rejection Reason"}
+                    </label>
+                    <textarea
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      rows={3}
+                      placeholder={
+                        actionModalType === "in_progress"
+                          ? "Describe the work you have initiated..."
+                          : "Provide a clear reason why this complaint cannot be addressed..."
+                      }
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Add Progress Photo (Optional)
+                    </label>
+
+                    {uploadedPhotoPreview ? (
+                      <div className="relative rounded-2xl overflow-hidden border border-slate-200 h-36">
+                        <img
+                          src={uploadedPhotoPreview}
+                          alt="Uploaded preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => setUploadedPhotoPreview(null)}
+                          className="absolute top-2 right-2 p-1.5 bg-slate-900/70 hover:bg-slate-900 text-white rounded-full transition"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-blue-50/30 transition text-center">
+                        <UploadCloud className="w-8 h-8 text-blue-500 mb-1" />
+                        <p className="text-xs font-bold text-slate-700">Click to upload photo</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG (Max 10 MB)</p>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Action Buttons */}
             <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-3">
               <button
                 onClick={closeActionModal}
-                disabled={updatingId !== null}
+                disabled={updatingId !== null || submittingEvidence}
                 className="px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-white transition"
               >
                 Cancel
@@ -2009,17 +2727,15 @@ function WorkerDashboard() {
               {actionModalType === "resolve" && (
                 <button
                   onClick={() =>
-                    handleStatusUpdate(actionComplaint.id, "Resolved", remarks)
+                    handleSubmitCompletionEvidence(actionComplaint.id)
                   }
-                  disabled={updatingId === actionComplaint.id}
+                  disabled={submittingEvidence || !evidenceFile || !workPerformed.trim()}
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-2 disabled:opacity-50"
                 >
                   <CheckCircle2
-                    className={`w-3.5 h-3.5 ${
-                      updatingId === actionComplaint.id ? "animate-spin" : ""
-                    }`}
+                    className={`w-3.5 h-3.5 ${submittingEvidence ? "animate-spin" : ""}`}
                   />
-                  Mark as Resolved
+                  {submittingEvidence ? "Submitting Evidence..." : "Submit Completion Evidence"}
                 </button>
               )}
 

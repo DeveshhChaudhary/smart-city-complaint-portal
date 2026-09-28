@@ -13,12 +13,18 @@ import {
   X,
   XCircle,
   Wrench,
+  Megaphone,
 } from "lucide-react";
 
 const API_BASE_URL =
   "https://smart-city-complaint-portal-krs3.onrender.com";
 
 const TYPE_CONFIG = {
+  announcement: {
+    label: "Municipal Announcement",
+    icon: Megaphone,
+    className: "bg-indigo-100 text-indigo-700",
+  },
   new_complaint: {
     label: "New Complaint",
     icon: ClipboardCheck,
@@ -38,6 +44,26 @@ const TYPE_CONFIG = {
     label: "Reward",
     icon: CheckCheck,
     className: "bg-green-100 text-green-700",
+  },
+  reward_claim: {
+    label: "Reward Claim",
+    icon: CheckCheck,
+    className: "bg-emerald-100 text-emerald-700",
+  },
+  work_completion: {
+    label: "Work Completion",
+    icon: ClipboardCheck,
+    className: "bg-emerald-100 text-emerald-700",
+  },
+  work_verified: {
+    label: "Work Verified",
+    icon: CheckCheck,
+    className: "bg-teal-100 text-teal-700",
+  },
+  rework_required: {
+    label: "Rework Required",
+    icon: Wrench,
+    className: "bg-rose-100 text-rose-700",
   },
   general: {
     label: "General",
