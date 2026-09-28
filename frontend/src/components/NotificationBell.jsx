@@ -404,8 +404,13 @@ function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-3 w-[min(420px,calc(100vw-2rem))] bg-white border border-gray-200 rounded-2xl shadow-2xl z-[100] overflow-hidden">
-          <div className="px-4 py-4 border-b bg-gray-50">
+        <>
+          <div
+            className="fixed inset-0 bg-black/20 z-[95] sm:hidden"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[420px] max-h-[85vh] flex flex-col bg-white border border-gray-200 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="px-4 py-4 border-b bg-gray-50 shrink-0">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -686,7 +691,8 @@ function NotificationBell() {
             </span>
           </div>
         </div>
-      )}
+      </>
+    )}
     </div>
   );
 }

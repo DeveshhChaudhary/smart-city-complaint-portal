@@ -6,33 +6,39 @@ import {
   Award,
   BarChart3,
   Camera,
+  Check,
   CheckCircle2,
+  ChevronRight,
   Clock3,
-  Eye,
+  Flame,
+  Gift,
+  LayoutDashboard,
+  ListChecks,
   LogOut,
+  Map as MapIcon,
   MapPin,
-  RefreshCw,
-  UserRound,
+  MessageCircle,
   Pencil,
-  Trophy,
+  Plus,
+  RefreshCw,
+  Search,
+  SearchX,
+  ShieldCheck,
   Star,
+  ThumbsUp,
+  Trophy,
+  UserRound,
   Wrench,
   X,
   XCircle,
-  LayoutDashboard,
-  ListChecks,
-  Map,
-  Gift,
-  Search,
-  SearchX,
-  ThumbsUp,
-  MessageCircle,
-  Check,
-  Flag,
+  Eye,
+  EyeOff,
+  ArrowRight,
 } from "lucide-react";
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
+import smartCityLogo from "../../assets/smart-city-logo.png";
 
 const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 
@@ -51,6 +57,9 @@ function CitizenMapBounds({ points }) {
 function CitizenDashboard() {
   const navigate = useNavigate();
 
+  // Active navigation tab matching visual layout
+  const [activeTab, setActiveTab] = useState("home"); // "home" | "complaints" | "map" | "community" | "rewards"
+
   const [user, setUser] = useState(null);
   const [complaints, setComplaints] = useState([]);
   const [rewardData, setRewardData] = useState({
@@ -59,18 +68,24 @@ function CitizenDashboard() {
     rewards: [],
   });
   const [rewardsLoading, setRewardsLoading] = useState(true);
+  const [rewardsError, setRewardsError] = useState("");
+
   const [leaderboard, setLeaderboard] = useState([]);
   const [leaderboardRank, setLeaderboardRank] = useState(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
   const [leaderboardError, setLeaderboardError] = useState("");
+
   const [complaintSearch, setComplaintSearch] = useState("");
   const [complaintFilterSearch, setComplaintFilterSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("All");
+
   const [trackingComplaint, setTrackingComplaint] = useState(false);
   const [trackMessage, setTrackMessage] = useState("");
+  const [showTrackModal, setShowTrackModal] = useState(false);
+
   const [mapView, setMapView] = useState("heatmap");
   const [cityStats, setCityStats] = useState({
     total: 0,
@@ -82,14 +97,12 @@ function CitizenDashboard() {
   const [cityStatsLoading, setCityStatsLoading] = useState(true);
   const [cityStatsError, setCityStatsError] = useState("");
 
-  const [rewardsError, setRewardsError] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Profile modal
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState(null);
@@ -110,21 +123,22 @@ function CitizenDashboard() {
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState("");
 
-  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  // Feature 9E — Community Support & Verification
+  // Selected complaint detail modal
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [statusHistory, setStatusHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  // Community support and verification
   const [communityComplaints, setCommunityComplaints] = useState([]);
   const [communityLoading, setCommunityLoading] = useState(true);
   const [communityError, setCommunityError] = useState("");
-  const [communitySearch, setCommunitySearch] = useState("");
   const [communityDiscussion, setCommunityDiscussion] = useState(null);
   const [communityActionLoading, setCommunityActionLoading] = useState(false);
   const [communityComment, setCommunityComment] = useState("");
   const [communityFeedbackLoading, setCommunityFeedbackLoading] = useState(false);
-
-  const [statusHistory, setStatusHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
 
   const getToken = () => {
     return localStorage.getItem("access_token");
@@ -133,14 +147,9 @@ function CitizenDashboard() {
   const getUser = () => {
     try {
       const savedUser = localStorage.getItem("user");
-
-      if (!savedUser) {
-        return null;
-      }
-
+      if (!savedUser) return null;
       return JSON.parse(savedUser);
-    } catch (error) {
-      console.error("Failed to read saved user:", error);
+    } catch {
       return null;
     }
   };
@@ -148,11 +157,11 @@ function CitizenDashboard() {
   const logout = () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("user");
-
     navigate("/login", { replace: true });
   };
 
   const openProfile = () => {
+    setUserMenuOpen(false);
     setProfileError("");
     setPasswordError("");
     setPasswordSuccess("");
@@ -221,12 +230,12 @@ function CitizenDashboard() {
       }
       setSuccess("Profile updated successfully.");
       setProfileOpen(false);
-    } catch (error) {
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-      setProfileError(error.response?.data?.detail || "Failed to update profile.");
+      setProfileError(err.response?.data?.detail || "Failed to update profile.");
     } finally {
       setProfileSaving(false);
     }
@@ -261,16 +270,16 @@ function CitizenDashboard() {
       );
       setPasswordSuccess(response.data?.message || "Password changed successfully.");
       setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
-    } catch (error) {
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        if (error.response?.status === 403) {
-          setPasswordError(error.response?.data?.detail || "Password change is not allowed.");
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        if (err.response?.status === 403) {
+          setPasswordError(err.response?.data?.detail || "Password change is not allowed.");
         } else {
           logout();
         }
         return;
       }
-      setPasswordError(error.response?.data?.detail || "Failed to change password.");
+      setPasswordError(err.response?.data?.detail || "Failed to change password.");
     } finally {
       setPasswordSaving(false);
     }
@@ -280,47 +289,22 @@ function CitizenDashboard() {
     try {
       setLeaderboardLoading(true);
       setLeaderboardError("");
-
       const token = getToken();
-
-      if (!token) {
-        logout();
-        return;
-      }
+      if (!token) return;
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/leaderboard`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setLeaderboard(
-        Array.isArray(response.data?.leaderboard)
-          ? response.data.leaderboard
-          : []
-      );
-
-      setLeaderboardRank(
-        response.data?.current_user_rank ?? null
-      );
-    } catch (error) {
-      console.error("Failed to fetch leaderboard:", error);
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+      setLeaderboard(Array.isArray(response.data?.leaderboard) ? response.data.leaderboard : []);
+      setLeaderboardRank(response.data?.current_user_rank ?? null);
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setLeaderboardError(
-        error.response?.data?.detail ||
-          "Failed to load leaderboard."
-      );
+      setLeaderboardError(err.response?.data?.detail || "Failed to load leaderboard.");
     } finally {
       setLeaderboardLoading(false);
     }
@@ -330,45 +314,25 @@ function CitizenDashboard() {
     try {
       setRewardsLoading(true);
       setRewardsError("");
-
       const token = getToken();
-      const currentUser = getUser();
-
-      if (!token || !currentUser) {
-        return;
-      }
+      if (!token) return;
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/rewards/me`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setRewardData({
         total_points: Number(response.data?.total_points || 0),
         reward_count: Number(response.data?.reward_count || 0),
-        rewards: Array.isArray(response.data?.rewards)
-          ? response.data.rewards
-          : [],
+        rewards: Array.isArray(response.data?.rewards) ? response.data.rewards : [],
       });
-    } catch (error) {
-      console.error("Failed to fetch rewards:", error);
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setRewardsError(
-        error.response?.data?.detail ||
-          "Failed to load rewards."
-      );
+      setRewardsError(err.response?.data?.detail || "Failed to load rewards.");
     } finally {
       setRewardsLoading(false);
     }
@@ -381,35 +345,25 @@ function CitizenDashboard() {
       } else {
         setLoading(true);
       }
-
       setError("");
       setSuccess("");
 
       const token = getToken();
       const currentUser = getUser();
-
       if (!token || !currentUser) {
         logout();
         return;
       }
-
       setUser(currentUser);
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/citizen/${currentUser.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const complaintData = Array.isArray(
-        response.data?.complaints
-      )
+      const complaintData = Array.isArray(response.data?.complaints)
         ? response.data.complaints
         : [];
-
       setComplaints(complaintData);
 
       if (isRefresh) {
@@ -418,28 +372,20 @@ function CitizenDashboard() {
 
       if (selectedComplaint) {
         const updatedSelected = complaintData.find(
-          (complaint) =>
-            complaint.id === selectedComplaint.id
+          (c) => c.id === selectedComplaint.id
         );
-
         if (updatedSelected) {
           setSelectedComplaint(updatedSelected);
         }
       }
-    } catch (error) {
-      console.error("Failed to fetch complaints:", error);
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
       setError(
-        error.response?.data?.detail ||
-          error.response?.data?.message ||
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
           "Failed to load complaints. Please try again."
       );
     } finally {
@@ -452,201 +398,33 @@ function CitizenDashboard() {
     try {
       setCityStatsLoading(true);
       setCityStatsError("");
-
       const token = getToken();
       if (!token) return;
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/city/stats`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (response.data?.success) {
         setCityStats(response.data.stats || {});
       }
-    } catch (error) {
-      console.error("Failed to fetch city statistics:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
       setCityStatsError(
-        error.response?.data?.detail ||
-          "City progress is temporarily unavailable."
+        err.response?.data?.detail || "City progress is temporarily unavailable."
       );
     } finally {
       setCityStatsLoading(false);
     }
   };
 
-  useEffect(() => {
-    const token = getToken();
-    const currentUser = getUser();
-
-    if (!token || !currentUser) {
-      navigate("/login", { replace: true });
-      return;
-    }
-
-    if (currentUser.role !== "citizen") {
-      if (currentUser.role === "worker") {
-        navigate("/worker/dashboard", { replace: true });
-      } else if (currentUser.role === "admin") {
-        navigate("/admin/dashboard", { replace: true });
-      } else {
-        logout();
-      }
-
-      return;
-    }
-
-    setUser(currentUser);
-    fetchComplaints();
-    fetchRewards();
-    fetchLeaderboard();
-    fetchCityStats();
-    fetchCommunityComplaints();
-  }, []);
-
-  const totalComplaints = complaints.length;
-
-  const activeComplaints = complaints.filter(
-    (complaint) =>
-      complaint.status !== "Resolved" &&
-      complaint.status !== "Rejected"
-  ).length;
-
-  const resolvedComplaints = complaints.filter(
-    (complaint) => complaint.status === "Resolved"
-  ).length;
-
-  const rejectedComplaints = complaints.filter(
-    (complaint) => complaint.status === "Rejected"
-  ).length;
-
-  const getStatusClass = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "bg-blue-100 text-blue-700";
-
-      case "Verified":
-        return "bg-purple-100 text-purple-700";
-
-      case "Assigned":
-        return "bg-yellow-100 text-yellow-700";
-
-      case "In Progress":
-        return "bg-orange-100 text-orange-700";
-
-      case "Resolved":
-        return "bg-green-100 text-green-700";
-
-      case "Rejected":
-        return "bg-red-100 text-red-700";
-
-      default:
-        return "bg-gray-100 text-gray-700";
-    }
-  };
-
-  const getStatusDotClass = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "bg-blue-500";
-
-      case "Verified":
-        return "bg-purple-500";
-
-      case "Assigned":
-        return "bg-yellow-500";
-
-      case "In Progress":
-        return "bg-orange-500";
-
-      case "Resolved":
-        return "bg-green-500";
-
-      case "Rejected":
-        return "bg-red-500";
-
-      default:
-        return "bg-gray-400";
-    }
-  };
-
-  const getHistoryStatusClass = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "bg-blue-100 text-blue-700 border-blue-200";
-
-      case "Verified":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-
-      case "Assigned":
-        return "bg-yellow-100 text-yellow-700 border-yellow-200";
-
-      case "In Progress":
-        return "bg-orange-100 text-orange-700 border-orange-200";
-
-      case "Resolved":
-        return "bg-green-100 text-green-700 border-green-200";
-
-      case "Rejected":
-        return "bg-red-100 text-red-700 border-red-200";
-
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
-    }
-  };
-
-  const formatDate = (date) => {
-    if (!date) {
-      return "N/A";
-    }
-
-    try {
-      return new Date(date).toLocaleString("en-IN", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-    } catch {
-      return date;
-    }
-  };
-
-  const getAssignedWorkerName = (complaint) => {
-    if (complaint?.workers?.users?.name) {
-      return complaint.workers.users.name;
-    }
-
-    if (complaint?.workers?.worker_code) {
-      return complaint.workers.worker_code;
-    }
-
-    return "Not assigned yet";
-  };
-
-  const getAssignedWorkerDepartment = (complaint) => {
-    return complaint?.workers?.department || null;
-  };
-
-  const getAssignedWorkerSpecialization = (complaint) => {
-    return complaint?.workers?.specialization || null;
-  };
-
-
   const fetchCommunityComplaints = async () => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     try {
       setCommunityLoading(true);
@@ -660,21 +438,16 @@ function CitizenDashboard() {
       const data = Array.isArray(response.data?.complaints)
         ? response.data.complaints
         : Array.isArray(response.data)
-          ? response.data
-          : [];
-
+        ? response.data
+        : [];
       setCommunityComplaints(data);
-    } catch (error) {
-      console.error("Failed to fetch community complaints:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
       setCommunityError(
-        error.response?.data?.detail ||
-          "Community complaints are temporarily unavailable."
+        err.response?.data?.detail || "Community complaints are temporarily unavailable."
       );
     } finally {
       setCommunityLoading(false);
@@ -683,10 +456,7 @@ function CitizenDashboard() {
 
   const openCommunityDiscussion = async (complaint) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     try {
       setCommunityActionLoading(true);
@@ -700,17 +470,13 @@ function CitizenDashboard() {
         ...(response.data || {}),
       });
       setCommunityComment("");
-    } catch (error) {
-      console.error("Failed to load community discussion:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
       setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to load the community discussion."
+        err.response?.data?.detail || "Unable to load community discussion."
       );
     } finally {
       setCommunityActionLoading(false);
@@ -719,10 +485,7 @@ function CitizenDashboard() {
 
   const refreshCommunityDiscussion = async (complaintId, fallbackComplaint = null) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     const response = await axios.get(
       `${API_BASE_URL}/api/complaints/${complaintId}/community`,
@@ -740,10 +503,7 @@ function CitizenDashboard() {
 
   const toggleCommunitySupport = async (complaint) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     if (String(complaint.citizen_id || complaint.user_id || "") === String(user?.id || "")) {
       setCommunityError("You cannot support your own complaint.");
@@ -770,22 +530,15 @@ function CitizenDashboard() {
       }
 
       await fetchCommunityComplaints();
-
       if (communityDiscussion?.complaint?.id === complaint.id) {
         await refreshCommunityDiscussion(complaint.id);
       }
-    } catch (error) {
-      console.error("Failed to update support vote:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to update your support vote."
-      );
+      setCommunityError(err.response?.data?.detail || "Unable to update support vote.");
     } finally {
       setCommunityActionLoading(false);
     }
@@ -793,14 +546,10 @@ function CitizenDashboard() {
 
   const submitCommunityFeedback = async (complaint, feedbackType) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     try {
       setCommunityFeedbackLoading(true);
-
       await axios.post(
         `${API_BASE_URL}/api/complaints/${complaint.id}/feedback`,
         { feedback_type: feedbackType },
@@ -808,22 +557,15 @@ function CitizenDashboard() {
       );
 
       await fetchCommunityComplaints();
-
       if (communityDiscussion?.complaint?.id === complaint.id) {
         await refreshCommunityDiscussion(complaint.id);
       }
-    } catch (error) {
-      console.error("Failed to submit community feedback:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to submit community feedback."
-      );
+      setCommunityError(err.response?.data?.detail || "Unable to submit feedback.");
     } finally {
       setCommunityFeedbackLoading(false);
     }
@@ -831,36 +573,25 @@ function CitizenDashboard() {
 
   const removeCommunityFeedback = async (complaint) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     try {
       setCommunityFeedbackLoading(true);
-
       await axios.delete(
         `${API_BASE_URL}/api/complaints/${complaint.id}/feedback`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       await fetchCommunityComplaints();
-
       if (communityDiscussion?.complaint?.id === complaint.id) {
         await refreshCommunityDiscussion(complaint.id);
       }
-    } catch (error) {
-      console.error("Failed to remove community feedback:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to remove your community feedback."
-      );
+      setCommunityError(err.response?.data?.detail || "Unable to remove feedback.");
     } finally {
       setCommunityFeedbackLoading(false);
     }
@@ -868,42 +599,29 @@ function CitizenDashboard() {
 
   const submitCommunityComment = async (event) => {
     event.preventDefault();
-
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     const complaintId = communityDiscussion?.complaint?.id;
     const comment = communityComment.trim();
-
     if (!complaintId || !comment) return;
 
     try {
       setCommunityActionLoading(true);
-
       await axios.post(
         `${API_BASE_URL}/api/complaints/${complaintId}/comments`,
         { comment },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
       setCommunityComment("");
       await refreshCommunityDiscussion(complaintId);
       await fetchCommunityComplaints();
-    } catch (error) {
-      console.error("Failed to add community comment:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to add your comment."
-      );
+      setCommunityError(err.response?.data?.detail || "Unable to add comment.");
     } finally {
       setCommunityActionLoading(false);
     }
@@ -911,36 +629,25 @@ function CitizenDashboard() {
 
   const deleteCommunityComment = async (commentId) => {
     const token = getToken();
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     const complaintId = communityDiscussion?.complaint?.id;
     if (!complaintId) return;
 
     try {
       setCommunityActionLoading(true);
-
       await axios.delete(
         `${API_BASE_URL}/api/complaints/${complaintId}/comments/${commentId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
       await refreshCommunityDiscussion(complaintId);
       await fetchCommunityComplaints();
-    } catch (error) {
-      console.error("Failed to delete community comment:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setCommunityError(
-        error.response?.data?.detail ||
-          "Unable to delete the comment."
-      );
+      setCommunityError(err.response?.data?.detail || "Unable to delete comment.");
     } finally {
       setCommunityActionLoading(false);
     }
@@ -948,11 +655,7 @@ function CitizenDashboard() {
 
   const getHistory = async (complaintId) => {
     const token = getToken();
-
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) return;
 
     try {
       setHistoryLoading(true);
@@ -960,37 +663,16 @@ function CitizenDashboard() {
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/${complaintId}/history`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setStatusHistory(
-        Array.isArray(response.data?.history)
-          ? response.data.history
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Failed to fetch complaint history:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+      setStatusHistory(Array.isArray(response.data?.history) ? response.data.history : []);
+    } catch (err) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         return;
       }
-
-      setHistoryError(
-        error.response?.data?.detail ||
-          "Failed to load complaint status history."
-      );
-
+      setHistoryError(err.response?.data?.detail || "Failed to load complaint status history.");
       setStatusHistory([]);
     } finally {
       setHistoryLoading(false);
@@ -1001,7 +683,6 @@ function CitizenDashboard() {
     setSelectedComplaint(complaint);
     setStatusHistory([]);
     setHistoryError("");
-
     await getHistory(complaint.id);
   };
 
@@ -1011,6 +692,106 @@ function CitizenDashboard() {
     setHistoryError("");
   };
 
+  const trackComplaintById = async () => {
+    const query = complaintSearch.trim();
+    if (!query) {
+      setTrackMessage("Please enter a complaint ID or complaint code.");
+      return;
+    }
+
+    setTrackingComplaint(true);
+    setTrackMessage("");
+
+    try {
+      const normalizedQuery = query.toLowerCase();
+      const localComplaint = complaints.find(
+        (c) =>
+          String(c.id || "").toLowerCase() === normalizedQuery ||
+          String(c.complaint_code || "").toLowerCase() === normalizedQuery
+      );
+
+      if (localComplaint) {
+        setShowTrackModal(false);
+        setComplaintSearch("");
+        await openComplaintDetails(localComplaint);
+        return;
+      }
+
+      const token = getToken();
+      if (!token) {
+        logout();
+        return;
+      }
+
+      const response = await axios.get(
+        `${API_BASE_URL}/api/complaints/${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const complaint = response.data?.complaint;
+      if (complaint) {
+        setComplaints((current) => {
+          const exists = current.some((item) => item.id === complaint.id);
+          return exists ? current : [complaint, ...current];
+        });
+        setShowTrackModal(false);
+        setComplaintSearch("");
+        await openComplaintDetails(complaint);
+      } else {
+        setTrackMessage("Complaint not found.");
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        logout();
+        return;
+      }
+      if (err.response?.status === 403) {
+        setTrackMessage("You can only track complaints submitted from your account.");
+      } else if (err.response?.status === 404) {
+        setTrackMessage("No complaint was found with this ID.");
+      } else {
+        setTrackMessage(err.response?.data?.detail || "Unable to track complaint.");
+      }
+    } finally {
+      setTrackingComplaint(false);
+    }
+  };
+
+  // Lifecycle boot
+  useEffect(() => {
+    const token = getToken();
+    const currentUser = getUser();
+
+    if (!token || !currentUser) {
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    if (currentUser.role !== "citizen") {
+      if (currentUser.role === "worker") {
+        navigate("/worker/dashboard", { replace: true });
+      } else if (currentUser.role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        logout();
+      }
+      return;
+    }
+
+    setUser(currentUser);
+
+    const loadDashboardData = async () => {
+      await fetchComplaints();
+      await fetchRewards();
+      await fetchLeaderboard();
+      await fetchCityStats();
+      await fetchCommunityComplaints();
+    };
+
+    loadDashboardData();
+  }, []);
+
+  // Filtered complaints calculations
   const filteredComplaints = useMemo(() => {
     const search = complaintFilterSearch.trim().toLowerCase();
     const now = new Date();
@@ -1054,1495 +835,1098 @@ function CitizenDashboard() {
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [complaints, complaintFilterSearch, statusFilter, categoryFilter, priorityFilter, dateFilter]);
 
-  const complaintCategories = useMemo(() => {
-    return [...new Set(complaints.map((complaint) => complaint.categories?.name).filter(Boolean))].sort();
-  }, [complaints]);
+  // Status counters
+  const totalCount = complaints.length;
+  const submittedCount = complaints.filter((c) => c.status === "Submitted").length;
+  const ongoingCount = complaints.filter(
+    (c) => !["resolved", "rejected"].includes(String(c.status || "").toLowerCase())
+  ).length;
+  const resolvedCount = complaints.filter(
+    (c) => String(c.status || "").toLowerCase() === "resolved"
+  ).length;
+  const rejectedCount = complaints.filter(
+    (c) => String(c.status || "").toLowerCase() === "rejected"
+  ).length;
 
-  const activeComplaintFilters = [
-    complaintFilterSearch.trim(),
-    statusFilter !== "All" ? statusFilter : "",
-    categoryFilter !== "All" ? categoryFilter : "",
-    priorityFilter !== "All" ? priorityFilter : "",
-    dateFilter !== "All" ? dateFilter : "",
-  ].filter(Boolean).length;
-
-  const clearComplaintFilters = () => {
-    setComplaintFilterSearch("");
-    setStatusFilter("All");
-    setCategoryFilter("All");
-    setPriorityFilter("All");
-    setDateFilter("All");
-  };
-
-  const trackComplaintById = async () => {
-    const query = complaintSearch.trim();
-
-    if (!query) {
-      setTrackMessage("Enter a complaint ID or complaint code.");
-      return;
-    }
-
-    setTrackingComplaint(true);
-    setTrackMessage("");
-
+  const formatDate = (date) => {
+    if (!date) return "N/A";
     try {
-      const normalizedQuery = query.toLowerCase();
-
-      // First check the complaints already loaded for this citizen.
-      const localComplaint = complaints.find((complaint) =>
-        String(complaint.id || "").toLowerCase() === normalizedQuery ||
-        String(complaint.complaint_code || "").toLowerCase() === normalizedQuery
-      );
-
-      if (localComplaint) {
-        await openComplaintDetails(localComplaint);
-        setTrackMessage("");
-        return;
-      }
-
-      // If a UUID was entered, ask the protected backend endpoint for the complaint.
-      // The backend still enforces that citizens can only access their own complaints.
-      const token = getToken();
-      if (!token) {
-        logout();
-        return;
-      }
-
-      const response = await axios.get(
-        `${API_BASE_URL}/api/complaints/${encodeURIComponent(query)}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      const complaint = response.data?.complaint;
-
-      if (complaint) {
-        setComplaints((current) => {
-          const exists = current.some((item) => item.id === complaint.id);
-          return exists ? current : [complaint, ...current];
-        });
-        await openComplaintDetails(complaint);
-      } else {
-        setTrackMessage("Complaint not found.");
-      }
-    } catch (error) {
-      if (error.response?.status === 401) {
-        logout();
-        return;
-      }
-
-      if (error.response?.status === 403) {
-        setTrackMessage("You can only track complaints submitted from your account.");
-      } else if (error.response?.status === 404) {
-        setTrackMessage("No complaint was found with this ID.");
-      } else {
-        setTrackMessage(
-          error.response?.data?.detail ||
-            "Unable to track this complaint. Please check the ID and try again."
-        );
-      }
-    } finally {
-      setTrackingComplaint(false);
+      return new Date(date).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return date;
     }
   };
 
-  const currentHistoryIndex = useMemo(() => {
-    if (
-      !selectedComplaint ||
-      statusHistory.length === 0
-    ) {
-      return -1;
+  const getTimeAgo = (date) => {
+    if (!date) return "";
+    try {
+      const created = new Date(date);
+      const now = new Date();
+      const diffSec = Math.floor((now - created) / 1000);
+      if (diffSec < 60) return "Just now";
+      if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
+      if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hours ago`;
+      if (diffSec < 604800) return `${Math.floor(diffSec / 86400)} days ago`;
+      return created.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    } catch {
+      return "";
     }
+  };
 
-    return statusHistory.length - 1;
-  }, [selectedComplaint, statusHistory]);
-
-  const getCurrentStatusDescription = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "Your complaint has been submitted and is waiting for review.";
-
-      case "Verified":
-        return "Your complaint has been verified by the administrator.";
-
-      case "Assigned":
-        return "Your complaint has been assigned to a city worker.";
-
-      case "In Progress":
-        return "The assigned worker is currently working on your complaint.";
-
-      case "Resolved":
-        return "Your complaint has been marked as resolved.";
-
-      case "Rejected":
-        return "Your complaint has been rejected. Check the timeline for remarks.";
-
-      default:
-        return "Your complaint status has been updated.";
+  const getStatusBadge = (status) => {
+    const s = String(status || "").toLowerCase();
+    if (s === "resolved") {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+          Resolved
+        </span>
+      );
     }
+    if (s === "in progress" || s === "assigned") {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+          In Progress
+        </span>
+      );
+    }
+    if (s === "submitted" || s === "verified") {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+          Submitted
+        </span>
+      );
+    }
+    if (s === "rejected") {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+          Rejected
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+        {status}
+      </span>
+    );
   };
 
   const getRewardLevel = (points) => {
-    if (points >= 100) {
-      return {
-        name: "Civic Champion",
-        description: "100+ points earned",
-        nextPoints: null,
-        icon: Trophy,
-      };
-    }
-
-    if (points >= 50) {
-      return {
-        name: "Civic Helper",
-        description: "50+ points earned",
-        nextPoints: 100,
-        icon: Award,
-      };
-    }
-
-    if (points >= 25) {
-      return {
-        name: "Civic Starter",
-        description: "25+ points earned",
-        nextPoints: 50,
-        icon: Star,
-      };
-    }
-
-    return {
-      name: "New Citizen",
-      description: "Start earning civic points",
-      nextPoints: 25,
-      icon: Star,
-    };
+    if (points >= 100) return { name: "Civic Champion", nextPoints: null, icon: Trophy };
+    if (points >= 50) return { name: "Civic Helper", nextPoints: 100, icon: Award };
+    if (points >= 25) return { name: "Civic Starter", nextPoints: 50, icon: Star };
+    return { name: "New Citizen", nextPoints: 25, icon: Star };
   };
 
   const rewardLevel = getRewardLevel(rewardData.total_points);
-  const RewardLevelIcon = rewardLevel.icon;
-
-  const rewardProgress = rewardLevel.nextPoints
-    ? Math.min(
-        100,
-        Math.round(
-          (rewardData.total_points / rewardLevel.nextPoints) * 100
-        )
-      )
-    : 100;
 
   const achievementBadges = useMemo(() => {
-    const submitted = complaints.length;
-    const resolved = complaints.filter(
-      (item) => String(item.status || "").toLowerCase() === "resolved"
-    ).length;
-    const points = Number(rewardData.total_points || 0);
+    const sub = complaints.length;
+    const res = resolvedCount;
+    const pts = Number(rewardData.total_points || 0);
 
     return [
-      {
-        id: "first-report",
-        icon: MapPin,
-        title: "First Report",
-        description: "Submit your first civic complaint.",
-        unlocked: submitted >= 1,
-        progress: Math.min(submitted, 1),
-        target: 1,
-      },
-      {
-        id: "civic-starter",
-        icon: Award,
-        title: "Civic Starter",
-        description: "Submit 5 civic complaints.",
-        unlocked: submitted >= 5,
-        progress: Math.min(submitted, 5),
-        target: 5,
-      },
-      {
-        id: "civic-contributor",
-        icon: Trophy,
-        title: "Civic Contributor",
-        description: "Submit 10 civic complaints.",
-        unlocked: submitted >= 10,
-        progress: Math.min(submitted, 10),
-        target: 10,
-      },
-      {
-        id: "community-helper",
-        icon: CheckCircle2,
-        title: "Community Helper",
-        description: "Have 3 complaints resolved.",
-        unlocked: resolved >= 3,
-        progress: Math.min(resolved, 3),
-        target: 3,
-      },
-      {
-        id: "civic-champion",
-        icon: Star,
-        title: "Civic Champion",
-        description: "Earn 100 civic reward points.",
-        unlocked: points >= 100,
-        progress: Math.min(points, 100),
-        target: 100,
-      },
+      { id: "1", title: "First Report", desc: "Submit 1 civic issue", unlocked: sub >= 1, icon: MapPin },
+      { id: "2", title: "Civic Starter", desc: "Submit 5 civic issues", unlocked: sub >= 5, icon: Award },
+      { id: "3", title: "Civic Contributor", desc: "Submit 10 civic issues", unlocked: sub >= 10, icon: Trophy },
+      { id: "4", title: "Community Helper", desc: "3 issues resolved", unlocked: res >= 3, icon: CheckCircle2 },
+      { id: "5", title: "Civic Champion", desc: "100+ reward points", unlocked: pts >= 100, icon: Star },
     ];
-  }, [complaints, rewardData.total_points]);
-
-  const unlockedBadgeCount = achievementBadges.filter((badge) => badge.unlocked).length;
-
-  const personalResolutionRate = totalComplaints > 0 ? Math.round((resolvedComplaints / totalComplaints) * 100) : 0;
-  const statusStatistics = [
-    { label: "Submitted", value: complaints.filter((c) => c.status === "Submitted").length, className: "bg-blue-500" },
-    { label: "Verified", value: complaints.filter((c) => c.status === "Verified").length, className: "bg-purple-500" },
-    { label: "Assigned", value: complaints.filter((c) => c.status === "Assigned").length, className: "bg-yellow-500" },
-    { label: "In Progress", value: complaints.filter((c) => c.status === "In Progress").length, className: "bg-orange-500" },
-    { label: "Resolved", value: resolvedComplaints, className: "bg-green-500" },
-    { label: "Rejected", value: rejectedComplaints, className: "bg-red-500" },
-  ];
-  const maxStatusCount = Math.max(...statusStatistics.map((item) => item.value), 1);
+  }, [complaints.length, resolvedCount, rewardData.total_points]);
 
   const mapComplaints = complaints
-    .map((complaint) => ({
-      ...complaint,
-      latitude: Number(complaint.latitude ?? complaint.lat),
-      longitude: Number(complaint.longitude ?? complaint.lng ?? complaint.lon),
+    .map((c) => ({
+      ...c,
+      latitude: Number(c.latitude ?? c.lat),
+      longitude: Number(c.longitude ?? c.lng ?? c.lon),
     }))
-    .filter((complaint) => Number.isFinite(complaint.latitude) && Number.isFinite(complaint.longitude));
+    .filter((c) => Number.isFinite(c.latitude) && Number.isFinite(c.longitude));
 
   const mapCenter = mapComplaints.length
     ? [mapComplaints[0].latitude, mapComplaints[0].longitude]
-    : [20.5937, 78.9629];
+    : [19.076, 72.8777];
 
-  const heatmapPoints = mapComplaints.map((complaint) => {
-    let nearbyCount = 0;
+  const getAssignedWorkerName = (c) => {
+    if (c?.workers?.users?.name) return c.workers.users.name;
+    if (c?.workers?.worker_code) return c.workers.worker_code;
+    return "Not assigned yet";
+  };
 
-    mapComplaints.forEach((other) => {
-      const latDiff = complaint.latitude - other.latitude;
-      const lngDiff = complaint.longitude - other.longitude;
-      const distanceKm = Math.sqrt(
-        Math.pow(latDiff * 111, 2) +
-        Math.pow(lngDiff * 111 * Math.cos((complaint.latitude * Math.PI) / 180), 2)
-      );
-
-      if (distanceKm <= 1) nearbyCount += 1;
-    });
-
-    return {
-      ...complaint,
-      density: nearbyCount,
-    };
-  });
-
-  const maxHeatDensity = heatmapPoints.reduce(
-    (max, point) => Math.max(max, point.density),
-    1
-  );
-
-  const solvedCount = complaints.filter((item) => String(item.status || "").toLowerCase() === "resolved").length;
-  const ongoingCount = complaints.filter((item) => !["resolved", "rejected"].includes(String(item.status || "").toLowerCase())).length;
-  const rejectedCount = complaints.filter((item) => String(item.status || "").toLowerCase() === "rejected").length;
-  const resolutionProgress = totalComplaints ? Math.round((resolvedComplaints / totalComplaints) * 100) : 0;
-
-
-  const filteredCommunityComplaints = useMemo(() => {
-    const query = communitySearch.trim().toLowerCase();
-
-    return communityComplaints.filter((complaint) => {
-      if (!query) return true;
-
-      return [
-        complaint.title,
-        complaint.description,
-        complaint.location,
-        complaint.address,
-        complaint.complaint_code,
-        complaint.categories?.name,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(query);
-    });
-  }, [communityComplaints, communitySearch]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-14 h-14 rounded-2xl bg-blue-600/10 flex items-center justify-center mx-auto mb-4">
-            <RefreshCw className="w-7 h-7 animate-spin text-blue-600" />
-          </div>
-          <p className="font-semibold text-slate-800">Loading your dashboard</p>
-          <p className="text-sm text-slate-500 mt-1">Fetching your latest civic activity...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const profilePhoto = user?.profile_image_url;
-  const firstName = (user?.name || "Citizen").split(" ")[0];
+  const userInitials = (user?.name || "Citizen")
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[#f6f8fc] text-slate-900">
-      {/* Top navigation */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
-              <MapPin className="w-5 h-5 text-white" />
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans">
+      {/* ============================================================ */}
+      {/* 1. TOP NAVBAR (Matches Reference Screen 2 & Screen 6)         */}
+      {/* ============================================================ */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 sm:px-8 py-3.5 transition-all">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          {/* Logo & Portal Branding */}
+          <div
+            onClick={() => setActiveTab("home")}
+            className="flex items-center gap-3 cursor-pointer select-none group"
+          >
+            <div className="w-10 h-10 rounded-full p-0.5 bg-white ring-2 ring-blue-100 shadow-sm flex items-center justify-center overflow-hidden">
+              <img
+                src={smartCityLogo}
+                alt="Smart City Portal"
+                className="w-full h-full object-contain"
+              />
             </div>
-            <div className="text-left">
-              <p className="font-extrabold tracking-tight text-slate-900 leading-tight">Smart City</p>
-              <p className="text-[11px] font-medium text-slate-500">Citizen Portal</p>
+            <div>
+              <div className="font-black text-slate-900 tracking-tight text-base sm:text-lg leading-tight group-hover:text-blue-600 transition">
+                SMART CITY
+              </div>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
+                Complaint Portal
+              </div>
             </div>
-          </button>
+          </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* Desktop Navigation Links */}
+          <nav className="hidden lg:flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60">
+            <button
+              onClick={() => setActiveTab("home")}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                activeTab === "home"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Home
+            </button>
+            <button
+              onClick={() => setActiveTab("complaints")}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                activeTab === "complaints"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              My Complaints
+            </button>
+            <button
+              onClick={() => setActiveTab("map")}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                activeTab === "map"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Map
+            </button>
+            <button
+              onClick={() => setActiveTab("community")}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                activeTab === "community"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Community
+            </button>
+            <button
+              onClick={() => setActiveTab("rewards")}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                activeTab === "rewards"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Leaderboard
+            </button>
+          </nav>
+
+          {/* Right Action Bar */}
+          <div className="flex items-center gap-3">
+            {/* Quick Track Button */}
+            <button
+              onClick={() => setShowTrackModal(true)}
+              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 rounded-xl transition border border-slate-200"
+              title="Track by ID or Code"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Track Issue</span>
+            </button>
+
+            {/* Notification Bell */}
             <NotificationBell />
-            <button onClick={openProfile} className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition">
-              {profilePhoto ? (
-                <img src={profilePhoto} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                  {(user?.name || "C").charAt(0).toUpperCase()}
+
+            {/* User Profile Pill */}
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen((prev) => !prev)}
+                className="flex items-center gap-2 p-1 pl-1.5 pr-2.5 rounded-full hover:bg-slate-100 border border-slate-200 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-sm overflow-hidden">
+                  {user?.profile_image_url ? (
+                    <img
+                      src={user.profile_image_url}
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    userInitials
+                  )}
+                </div>
+                <span className="text-sm font-bold text-slate-800 hidden sm:inline">
+                  {user?.name?.split(" ")[0] || "Citizen"}
+                </span>
+                <ChevronRight
+                  className={`w-4 h-4 text-slate-400 transition-transform ${
+                    userMenuOpen ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200/80 p-2 z-50">
+                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <p className="text-xs font-bold text-slate-800">{user?.name || "Citizen"}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{user?.email}</p>
+                  </div>
+                  <button
+                    onClick={openProfile}
+                    className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition"
+                  >
+                    <UserRound className="w-4 h-4 text-blue-600" />
+                    Edit Profile
+                  </button>
+                  <button
+                    onClick={openProfile}
+                    className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition"
+                  >
+                    <Pencil className="w-4 h-4 text-teal-600" />
+                    Change Password
+                  </button>
+                  <div className="border-t border-slate-100 my-1" />
+                  <button
+                    onClick={logout}
+                    className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-xl transition"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
                 </div>
               )}
-              <div className="text-left">
-                <p className="text-sm font-semibold text-slate-800 leading-tight">{user?.name}</p>
-                <p className="text-[11px] text-slate-500">Citizen</p>
-              </div>
-            </button>
-            <button onClick={openProfile} className="sm:hidden w-9 h-9 rounded-full overflow-hidden border border-slate-200">
-              {profilePhoto ? <img src={profilePhoto} alt="" className="w-full h-full object-cover" /> : <UserRound className="w-5 h-5 mx-auto text-slate-500" />}
-            </button>
-            <button onClick={logout} title="Logout" className="w-10 h-10 rounded-xl border border-slate-200 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition flex items-center justify-center">
-              <LogOut className="w-4 h-4" />
-            </button>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* Section navigation */}
-      <nav className="sticky top-16 z-30 bg-white/90 backdrop-blur border-b border-slate-200 overflow-x-auto">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 min-w-max h-12">
-          {[
-            ["overview", "Overview", LayoutDashboard],
-            ["my-complaints", "My Complaints", ListChecks],
-            ["city-progress", "City Progress", CheckCircle2],
-            ["city-map", "City Map", Map],
-            ["rewards", "Rewards", Gift],
-            ["leaderboard", "Leaderboard", Trophy],
-            ["achievements", "Achievements", Award],
-            ["community", "Community", MessageCircle],
-          ].map(([id, label, Icon]) => (
-            <button
-              key={id}
-              onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition"
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-          <button onClick={openProfile} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition">
-            <UserRound className="w-4 h-4" /> Profile
-          </button>
-        </div>
-      </nav>
-
-      {/* Complaint tracker */}
-      <div className="bg-slate-50 border-b border-slate-200">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex flex-col md:flex-row md:items-center gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 whitespace-nowrap">
-              <Search className="w-4 h-4 text-blue-600" />
-              Track a complaint
-            </div>
-            <div className="flex-1 flex gap-2 max-w-2xl">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  value={complaintSearch}
-                  onChange={(e) => { setComplaintSearch(e.target.value); setTrackMessage(""); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") trackComplaintById(); }}
-                  placeholder="Enter complaint ID or complaint code..."
-                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <button
-                onClick={trackComplaintById}
-                disabled={trackingComplaint}
-                className="px-5 h-10 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition whitespace-nowrap"
-              >
-                {trackingComplaint ? "Tracking..." : "Track"}
-              </button>
-            </div>
-            {trackMessage && (
-              <p className="text-xs font-medium text-red-600">{trackMessage}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <main id="overview" className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        {/* Alerts */}
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-24 lg:pb-8 space-y-6">
+        {/* Banner Feedback Messages */}
         {error && (
-          <div className="mb-5 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4">
-            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <div><p className="font-semibold">Something went wrong</p><p className="text-sm mt-1">{error}</p></div>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 text-sm flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-600 mt-0.5" />
+            <div className="flex-1">{error}</div>
+            <button onClick={() => setError("")}>
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
         {success && (
-          <div className="mb-5 flex items-start gap-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl p-4">
-            <CheckCircle2 className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <div><p className="font-semibold">Success</p><p className="text-sm mt-1">{success}</p></div>
-            <button onClick={() => setSuccess("")} className="ml-auto"><X className="w-4 h-4" /></button>
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4 text-sm flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-600 mt-0.5" />
+            <div className="flex-1">{success}</div>
+            <button onClick={() => setSuccess("")}>
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
-        {/* Hero */}
-        <section className="relative overflow-hidden rounded-3xl bg-slate-950 text-white shadow-xl mb-6">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-700/80 via-slate-950 to-indigo-950" />
-          <div className="absolute -right-20 -top-24 w-80 h-80 rounded-full bg-blue-500/20 blur-3xl" />
-          <div className="absolute right-20 bottom-[-100px] w-72 h-72 rounded-full bg-indigo-500/20 blur-3xl" />
-          <div className="relative p-6 sm:p-8 lg:p-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-3 py-1.5 text-xs font-semibold text-blue-100 mb-4">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                Your civic activity dashboard
-              </div>
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
-                Good to see you, {firstName}.
-              </h1>
-              <p className="mt-3 text-slate-300 max-w-xl text-sm sm:text-base leading-7">
-                Report local problems, follow every update, and contribute to a cleaner and better city.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button onClick={() => navigate("/citizen/complaints/new")} className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white text-blue-700 font-bold hover:bg-blue-50 transition shadow-lg">
-                  <MapPin className="w-5 h-5" /> Report a Problem
-                </button>
-                <button onClick={() => document.getElementById("my-complaints")?.scrollIntoView({ behavior: "smooth" })} className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white/10 border border-white/20 text-white font-semibold hover:bg-white/15 transition">
-                  <Eye className="w-4 h-4" /> Track Complaints
-                </button>
-              </div>
-            </div>
-
-            <div className="w-full lg:w-[330px] rounded-2xl bg-white/10 border border-white/15 p-5 backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-300">Civic level</span>
-                <RewardLevelIcon className="w-6 h-6 text-amber-300" />
-              </div>
-              <p className="text-2xl font-bold mt-2">{rewardLevel.name}</p>
-              <p className="text-sm text-slate-300 mt-1">{rewardData.total_points} points earned</p>
-              <div className="mt-4 h-2.5 rounded-full bg-white/15 overflow-hidden">
-                <div className="h-full rounded-full bg-amber-300 transition-all duration-700" style={{ width: `${rewardProgress}%` }} />
-              </div>
-              <div className="flex justify-between text-[11px] text-slate-300 mt-2">
-                <span>Current progress</span>
-                <span>{rewardLevel.nextPoints ? `${rewardLevel.nextPoints - rewardData.total_points} pts to next` : "Max level"}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* KPI cards */}
-        <section className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-          {[
-            { label: "Total Complaints", value: totalComplaints, icon: MapPin, iconBg: "bg-blue-50", iconText: "text-blue-600", accent: "border-blue-100" },
-            { label: "Active", value: activeComplaints, icon: Clock3, iconBg: "bg-amber-50", iconText: "text-amber-600", accent: "border-amber-100" },
-            { label: "Resolved", value: resolvedComplaints, icon: CheckCircle2, iconBg: "bg-emerald-50", iconText: "text-emerald-600", accent: "border-emerald-100" },
-            { label: "Reward Points", value: rewardData.total_points, icon: Trophy, iconBg: "bg-violet-50", iconText: "text-violet-600", accent: "border-violet-100" },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.label} className={`bg-white rounded-2xl border ${item.accent} p-5 shadow-sm hover:shadow-md transition`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500">{item.label}</p>
-                    <p className="text-3xl font-extrabold tracking-tight mt-2 text-slate-900">{item.value}</p>
-                  </div>
-                  <div className={`w-11 h-11 rounded-xl ${item.iconBg} ${item.iconText} flex items-center justify-center`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
+        {/* ============================================================ */}
+        {/* TAB 1: HOME VIEW (Direct Match to Screen 2 in Reference)    */}
+        {/* ============================================================ */}
+        {activeTab === "home" && (
+          <div className="space-y-6 sm:space-y-8 animate-fadeIn">
+            {/* Hero Welcome Card */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-10 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="max-w-xl z-10 text-center md:text-left">
+                <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                  Hello, {user?.name?.split(" ")[0] || "Citizen"} 👋
+                </h1>
+                <p className="text-slate-500 text-sm sm:text-base mt-2 font-medium">
+                  Help make your city better. Report issues and track their progress in real-time.
+                </p>
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6">
+                  <button
+                    onClick={() => navigate("/citizen/complaints/new")}
+                    className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3.5 rounded-2xl shadow-md hover:shadow-blue-500/25 transition duration-150 text-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Report a Problem</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("complaints")}
+                    className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-3.5 rounded-2xl transition text-sm"
+                  >
+                    <ListChecks className="w-4 h-4" />
+                    <span>View All Complaints</span>
+                  </button>
                 </div>
               </div>
-            );
-          })}
-        </section>
 
-        {/* City progress */}
-        <section id="city-progress" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 mb-6">
-          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5" />
+              {/* City Graphic Accent */}
+              <div className="w-full md:w-80 h-40 sm:h-48 rounded-2xl bg-gradient-to-tr from-blue-100/80 via-emerald-100/60 to-amber-100/70 p-4 flex items-center justify-center relative overflow-hidden flex-shrink-0">
+                <div className="absolute inset-0 opacity-80 flex items-center justify-center">
+                  <img
+                    src={smartCityLogo}
+                    alt="City Skyline"
+                    className="w-32 h-32 object-contain opacity-90 drop-shadow-md"
+                  />
+                </div>
+                <div className="absolute bottom-2 left-3 right-3 text-center bg-white/80 backdrop-blur-sm rounded-xl py-1 text-[11px] font-bold text-slate-700 shadow-sm">
+                  Active Civic Monitoring
+                </div>
+              </div>
+            </div>
+
+            {/* 4 Metrics Cards Row (Direct Match to Screen 2) */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              {/* Total Complaints */}
+              <div
+                onClick={() => {
+                  setStatusFilter("All");
+                  setActiveTab("complaints");
+                }}
+                className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-sm hover:border-blue-400 hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+                  <ListChecks className="w-6 h-6" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">City progress</p>
-                  <h2 className="text-xl font-extrabold mt-0.5">How the city is responding</h2>
+                  <div className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                    {totalCount}
+                  </div>
+                  <div className="text-xs sm:text-sm font-semibold text-slate-500 mt-1">
+                    Total Complaints
+                  </div>
                 </div>
               </div>
-              <p className="text-sm text-slate-500 mt-3 max-w-2xl">Aggregated complaint progress across the portal. Individual complaint details remain private to authorized users.</p>
-              {cityStatsError && <p className="text-xs text-red-600 mt-2">{cityStatsError}</p>}
-            </div>
 
-            <div className="w-full xl:w-[520px]">
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="font-semibold text-slate-700">City resolution rate</span>
-                <span className="font-extrabold text-emerald-600">
-                  {cityStatsLoading ? "—" : `${cityStats.resolution_rate || 0}%`}
-                </span>
-              </div>
-              <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-green-400 rounded-full transition-all duration-700"
-                  style={{ width: `${Math.min(100, Number(cityStats.resolution_rate) || 0)}%` }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
-                {[
-                  { label: "Total", value: cityStats.total, cls: "text-blue-700 bg-blue-50" },
-                  { label: "Resolved", value: cityStats.resolved, cls: "text-emerald-700 bg-emerald-50" },
-                  { label: "Ongoing", value: cityStats.ongoing, cls: "text-amber-700 bg-amber-50" },
-                  { label: "Rejected", value: cityStats.rejected, cls: "text-red-700 bg-red-50" },
-                ].map((item) => (
-                  <div key={item.label} className={`rounded-xl px-3 py-2.5 ${item.cls}`}>
-                    <p className="text-[11px] font-semibold opacity-80">{item.label}</p>
-                    <p className="text-lg font-extrabold mt-0.5">{cityStatsLoading ? "—" : item.value}</p>
+              {/* In Progress */}
+              <div
+                onClick={() => {
+                  setStatusFilter("In Progress");
+                  setActiveTab("complaints");
+                }}
+                className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-sm hover:border-amber-400 hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
+                  <Clock3 className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                    {ongoingCount}
                   </div>
-                ))}
+                  <div className="text-xs sm:text-sm font-semibold text-slate-500 mt-1">
+                    In Progress
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div className="mt-5 pt-5 border-t border-slate-100">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <p className="text-sm font-bold text-slate-800">Your contribution</p>
-                <p className="text-xs text-slate-500 mt-0.5">Progress of the complaints you have personally reported.</p>
+              {/* Resolved */}
+              <div
+                onClick={() => {
+                  setStatusFilter("Resolved");
+                  setActiveTab("complaints");
+                }}
+                className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-sm hover:border-emerald-400 hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                    {resolvedCount}
+                  </div>
+                  <div className="text-xs sm:text-sm font-semibold text-slate-500 mt-1">
+                    Resolved
+                  </div>
+                </div>
               </div>
-              <div className="text-sm font-bold text-slate-700">{resolutionProgress}% resolved</div>
-            </div>
-            <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden mt-3">
-              <div className="h-full bg-blue-600 rounded-full transition-all duration-700" style={{ width: `${resolutionProgress}%` }} />
-            </div>
-            <div className="flex flex-wrap gap-4 mt-2.5 text-xs font-medium text-slate-500">
-              <span><b className="text-emerald-600">{solvedCount}</b> Solved</span>
-              <span><b className="text-amber-600">{ongoingCount}</b> Ongoing</span>
-              <span><b className="text-red-600">{rejectedCount}</b> Rejected</span>
-            </div>
-          </div>
-        </section>
 
-        {/* City map */}
-        <section id="city-map" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Civic issue map</p>
-              <h2 className="text-xl font-extrabold mt-1">Problems reported on the map</h2>
-              <p className="text-sm text-slate-500 mt-1">Use Heatmap to see complaint concentration or Markers to inspect individual complaints.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-              <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-                <button onClick={() => setMapView("heatmap")} className={`px-3 py-2 rounded-lg ${mapView === "heatmap" ? "bg-white shadow-sm text-blue-700" : "text-slate-500"}`}>Heatmap</button>
-                <button onClick={() => setMapView("markers")} className={`px-3 py-2 rounded-lg ${mapView === "markers" ? "bg-white shadow-sm text-blue-700" : "text-slate-500"}`}>Markers</button>
+              {/* Reward Points */}
+              <div
+                onClick={() => setActiveTab("rewards")}
+                className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-sm hover:border-purple-400 hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mb-4">
+                  <Trophy className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                    {rewardData.total_points}
+                  </div>
+                  <div className="text-xs sm:text-sm font-semibold text-slate-500 mt-1">
+                    Reward Points
+                  </div>
+                </div>
               </div>
-              <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700">● {solvedCount} Solved</span>
-              <span className="px-3 py-1.5 rounded-full bg-amber-50 text-amber-700">● {ongoingCount} Ongoing</span>
-              <span className="px-3 py-1.5 rounded-full bg-red-50 text-red-700">● {rejectedCount} Rejected</span>
             </div>
-          </div>
-          <div className="h-[420px] w-full bg-slate-100">
-            <MapContainer center={mapCenter} zoom={mapComplaints.length ? 13 : 5} scrollWheelZoom className="h-full w-full">
-              <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <CitizenMapBounds points={mapComplaints} />
-              {mapView === "heatmap" ? (
-                heatmapPoints.map((complaint) => {
-                  const intensity = complaint.density / maxHeatDensity;
-                  const radius = 18 + intensity * 32;
-                  const fillColor = intensity >= 0.75 ? "#ef4444" : intensity >= 0.45 ? "#f59e0b" : "#22c55e";
-                  return (
-                    <CircleMarker
-                      key={`heat-${complaint.id}`}
-                      center={[complaint.latitude, complaint.longitude]}
-                      radius={radius}
-                      pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.22, weight: 1, opacity: 0.45 }}
-                    >
-                      <Popup>
-                        <div className="min-w-[220px]">
-                          <p className="font-bold text-slate-900">Complaint density area</p>
-                          <p className="text-sm mt-1"><b>{complaint.density}</b> complaint{complaint.density !== 1 ? "s" : ""} within approximately 1 km</p>
-                          <p className="text-xs text-slate-500 mt-2">Example complaint: {complaint.complaint_code || complaint.id}</p>
-                          <button onClick={() => openComplaintDetails(complaint)} className="mt-3 w-full px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold">View Complaint</button>
-                        </div>
-                      </Popup>
-                    </CircleMarker>
-                  );
-                })
-              ) : (
-                mapComplaints.map((complaint) => {
-                  const status = String(complaint.status || "").toLowerCase();
-                  const fillColor = status === "resolved" ? "#10b981" : status === "rejected" ? "#ef4444" : "#f59e0b";
-                  return (
-                    <CircleMarker key={complaint.id} center={[complaint.latitude, complaint.longitude]} radius={9} pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.8, weight: 2 }}>
-                      <Popup>
-                        <div className="min-w-[210px]">
-                          <p className="font-bold text-slate-900">{complaint.title}</p>
-                          <p className="text-xs text-slate-500 mt-1">{complaint.complaint_code || complaint.id}</p>
-                          <div className="mt-2 space-y-1 text-sm">
-                            <p><b>Status:</b> {complaint.status}</p>
-                            <p><b>Priority:</b> {complaint.priority || "Normal"}</p>
-                            <p><b>Category:</b> {complaint.categories?.name || "Uncategorized"}</p>
-                          </div>
-                          <button onClick={() => openComplaintDetails(complaint)} className="mt-3 w-full px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold">View Complaint</button>
-                        </div>
-                      </Popup>
-                    </CircleMarker>
-                  );
-                })
-              )}
-            </MapContainer>
-          </div>
-          {!mapComplaints.length && (
-            <div className="px-5 py-3 text-xs text-slate-500 border-t border-slate-100">No complaints with valid latitude/longitude are available yet. Complaints will appear here once location coordinates are saved.</div>
-          )}
-        </section>
 
-        {/* Two-column dashboard */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-          <section className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-blue-600">My civic activity</p>
-                <h2 className="text-xl font-extrabold mt-1">Recent Complaints</h2>
-                <p className="text-sm text-slate-500 mt-1">Follow the latest status of issues you reported.</p>
+            {/* Recent Complaints Section (Direct Match to Screen 2) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+                    Recent Complaints
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Latest issues reported from your account
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveTab("complaints")}
+                  className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold text-blue-600 hover:text-blue-700 transition"
+                >
+                  <span>View All</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
-              <button onClick={() => fetchComplaints(true)} disabled={refreshing} className="w-10 h-10 rounded-xl border border-slate-200 hover:bg-slate-50 flex items-center justify-center disabled:opacity-50" title="Refresh complaints">
-                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-            <div className="p-5 sm:p-6">
+
               {complaints.length === 0 ? (
-                <div className="py-10 text-center border border-dashed border-slate-200 rounded-2xl">
-                  <div className="w-14 h-14 rounded-2xl bg-blue-50 mx-auto flex items-center justify-center">
-                    <MapPin className="w-7 h-7 text-blue-500" />
+                <div className="py-12 text-center">
+                  <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
+                    <ListChecks className="w-6 h-6" />
                   </div>
-                  <p className="font-bold mt-4">No complaints yet</p>
-                  <p className="text-sm text-slate-500 mt-1">Your submitted complaints will appear here.</p>
-                  <button onClick={() => navigate("/citizen/complaints/new")} className="mt-4 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">Submit a Complaint</button>
+                  <p className="text-base font-bold text-slate-800">No complaints reported yet</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Spot an issue in your neighborhood? Report it to city workers.
+                  </p>
+                  <button
+                    onClick={() => navigate("/citizen/complaints/new")}
+                    className="mt-4 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition"
+                  >
+                    + Report First Problem
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {complaints.slice(0, 4).map((complaint) => (
-                    <div key={complaint.id} className="group rounded-2xl border border-slate-200 p-4 sm:p-5 hover:border-blue-200 hover:shadow-sm transition">
-                      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                        <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-                          <MapPin className="w-5 h-5 text-slate-500" />
+                  {complaints.slice(0, 4).map((c) => (
+                    <div
+                      key={c.id}
+                      onClick={() => openComplaintDetails(c)}
+                      className="group flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/20 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        {/* Thumbnail */}
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-slate-100 border border-slate-200/80 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          {c.photo_url ? (
+                            <img
+                              src={c.photo_url}
+                              alt={c.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition"
+                            />
+                          ) : (
+                            <Wrench className="w-5 h-5 text-slate-400" />
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-bold text-slate-900 truncate">{complaint.title}</h3>
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${getStatusClass(complaint.status)}`}>{complaint.status}</span>
-                          </div>
-                          <p className="text-xs font-mono text-slate-400 mt-1">{complaint.complaint_code || complaint.id}</p>
-                          <p className="text-sm text-slate-600 mt-2 line-clamp-2">{complaint.description}</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-slate-500">
-                            <span>{complaint.categories?.name || "Uncategorized"}</span>
-                            <span>Priority: {complaint.priority || "Normal"}</span>
-                            <span>{formatDate(complaint.created_at)}</span>
+                        {/* Info */}
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-600 transition">
+                            {c.title}
+                          </h4>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1 truncate">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{c.address || c.categories?.name || "Civic location"}</span>
                           </div>
                         </div>
-                        <button onClick={() => openComplaintDetails(complaint)} className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-blue-700 transition">
-                          <Eye className="w-4 h-4" /> View
-                        </button>
+                      </div>
+
+                      {/* Right Meta */}
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                          {getTimeAgo(c.created_at)}
+                        </span>
+                        {getStatusBadge(c.status)}
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition" />
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            {complaints.length > 4 && (
-              <div className="px-5 sm:px-6 pb-5">
-                <button onClick={() => document.getElementById("my-complaints")?.scrollIntoView({ behavior: "smooth" })} className="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-semibold hover:bg-slate-50">
-                  View all {complaints.length} complaints
-                </button>
-              </div>
-            )}
-          </section>
 
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 sm:p-6 border-b border-slate-100">
-              <p className="text-xs font-bold uppercase tracking-wider text-violet-600">Rewards</p>
-              <h2 className="text-xl font-extrabold mt-1">Civic Impact</h2>
-              <p className="text-sm text-slate-500 mt-1">Your contribution is tracked through civic points.</p>
-            </div>
-            <div className="p-5 sm:p-6">
-              {rewardsError ? (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">{rewardsError}</div>
-              ) : (
-                <>
-                  <div className="rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 text-white p-5">
-                    <div className="flex items-center justify-between">
-                      <div><p className="text-sm text-white/75">Available points</p><p className="text-4xl font-extrabold mt-1">{rewardData.total_points}</p></div>
-                      <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center"><Trophy className="w-6 h-6" /></div>
-                    </div>
-                    <p className="text-sm text-white/75 mt-4">{rewardData.reward_count} reward transaction{rewardData.reward_count === 1 ? "" : "s"}</p>
-                  </div>
-                  <div className="mt-4 rounded-2xl border border-slate-200 p-4">
-                    <div className="flex justify-between items-center gap-3">
-                      <div><p className="font-bold">{rewardLevel.name}</p><p className="text-xs text-slate-500 mt-1">{rewardLevel.description}</p></div>
-                      <RewardLevelIcon className="w-5 h-5 text-violet-600" />
-                    </div>
-                    <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-600 rounded-full" style={{ width: `${rewardProgress}%` }} /></div>
-                  </div>
-                  <button onClick={() => document.getElementById("rewards")?.scrollIntoView({ behavior: "smooth" })} className="w-full mt-4 py-2.5 rounded-xl border border-slate-200 font-semibold text-sm hover:bg-slate-50">View reward history</button>
-                </>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* Leaderboard */}
-        <section id="leaderboard" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-600">Community</p>
-              <h2 className="text-xl font-extrabold mt-1 flex items-center gap-2"><Trophy className="w-5 h-5 text-amber-500" /> Civic Leaderboard</h2>
-              <p className="text-sm text-slate-500 mt-1">A transparent view of earned civic points.</p>
-            </div>
-            <button onClick={fetchLeaderboard} disabled={leaderboardLoading} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold disabled:opacity-50">
-              <RefreshCw className={`w-4 h-4 ${leaderboardLoading ? "animate-spin" : ""}`} /> Refresh
-            </button>
-          </div>
-          <div className="p-5 sm:p-6">
-            {leaderboardError ? (
-              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">{leaderboardError}</div>
-            ) : leaderboardLoading ? (
-              <div className="py-8 text-center text-slate-500"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />Loading leaderboard...</div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="lg:col-span-1 rounded-2xl bg-amber-50 border border-amber-100 p-5">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Your rank</p>
-                  <p className="text-4xl font-extrabold text-slate-900 mt-2">{leaderboardRank ? `#${leaderboardRank}` : "—"}</p>
-                  <p className="text-sm text-slate-600 mt-2">Keep contributing through meaningful civic reports.</p>
-                </div>
-                <div className="lg:col-span-2 space-y-2">
-                  {leaderboard.slice(0, 5).map((citizen) => {
-                    const isCurrentUser = citizen.user_id === user?.id;
-                    return (
-                      <div key={citizen.user_id} className={`flex items-center gap-3 p-3.5 rounded-xl border ${isCurrentUser ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50/50"}`}>
-                        <span className="w-8 text-center font-extrabold text-slate-500">#{citizen.rank}</span>
-                        {citizen.profile_image_url ? <img src={citizen.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover border border-white" /> : <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center"><UserRound className="w-4 h-4 text-slate-400" /></div>}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2"><p className="font-semibold truncate">{citizen.name}</p>{isCurrentUser && <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">YOU</span>}</div>
-                          <p className="text-xs text-slate-500 mt-0.5">{citizen.complaints_submitted} submitted · {citizen.complaints_resolved} resolved</p>
-                        </div>
-                        <p className="font-extrabold text-amber-600">{citizen.total_points}<span className="block text-[10px] font-medium text-slate-400 text-right">points</span></p>
-                      </div>
-                    );
-                  })}
-                  {leaderboard.length === 0 && <div className="py-8 text-center text-slate-500">No leaderboard data available.</div>}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-
-        {/* Feature 9E — Community Support & Verification */}
-        <section id="community" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            {/* City Wide Statistics Banner */}
+            <div className="bg-gradient-to-r from-blue-900 to-slate-900 text-white rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-md">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Community participation</p>
-                <h2 className="text-xl font-extrabold mt-1">Community Issues</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Support issues you also face, give community feedback, and discuss reported problems.
+                <span className="text-xs uppercase font-extrabold tracking-wider text-emerald-400">
+                  Municipal Progress
+                </span>
+                <h3 className="text-xl sm:text-2xl font-bold mt-1">
+                  City-Wide Grievance Resolution
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-md">
+                  Active municipal teams are resolving community issues across all wards.
                 </p>
               </div>
-              <div className="relative w-full lg:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  value={communitySearch}
-                  onChange={(event) => setCommunitySearch(event.target.value)}
-                  placeholder="Search community issues..."
-                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
+
+              <div className="flex items-center gap-6 sm:gap-10 text-center flex-shrink-0">
+                <div>
+                  <div className="text-2xl sm:text-3xl font-black text-white">
+                    {cityStats.total || 0}
+                  </div>
+                  <div className="text-xs text-slate-400 uppercase font-semibold">City Total</div>
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-3xl font-black text-emerald-400">
+                    {cityStats.resolved || 0}
+                  </div>
+                  <div className="text-xs text-slate-400 uppercase font-semibold">Resolved</div>
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-3xl font-black text-blue-400">
+                    {cityStats.resolution_rate || 0}%
+                  </div>
+                  <div className="text-xs text-slate-400 uppercase font-semibold">Rate</div>
+                </div>
               </div>
             </div>
           </div>
+        )}
 
-          <div className="p-5 sm:p-6">
-            {communityError && (
-              <div className="mb-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4">
-                <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="font-semibold">Community feature unavailable</p>
-                  <p className="text-sm mt-1">{communityError}</p>
-                </div>
-                <button onClick={() => setCommunityError("")} className="ml-auto">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {communityLoading ? (
-              <div className="py-12 text-center text-slate-500">
-                <RefreshCw className="w-7 h-7 animate-spin mx-auto text-indigo-600 mb-2" />
-                Loading community issues...
-              </div>
-            ) : filteredCommunityComplaints.length === 0 ? (
-              <div className="py-12 text-center border border-dashed border-slate-200 rounded-2xl">
-                <MessageCircle className="w-8 h-8 mx-auto text-slate-300" />
-                <p className="font-bold mt-3">No community issues found</p>
+        {/* ============================================================ */}
+        {/* TAB 2: MY COMPLAINTS VIEW (Direct Match to Screen 6)         */}
+        {/* ============================================================ */}
+        {activeTab === "complaints" && (
+          <div className="space-y-6 animate-fadeIn">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                  My Complaints
+                </h1>
                 <p className="text-sm text-slate-500 mt-1">
-                  Try a different search or check back after more complaints are submitted.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {filteredCommunityComplaints.map((complaint) => {
-                  const supportCount = Number(
-                    complaint.support_count ?? complaint.supports_count ?? 0
-                  );
-                  const genuineCount = Number(
-                    complaint.genuine_count ?? complaint.genuine_votes ?? 0
-                  );
-                  const notGenuineCount = Number(
-                    complaint.not_genuine_count ?? complaint.not_genuine_votes ?? 0
-                  );
-                  const commentCount = Number(
-                    complaint.comment_count ?? complaint.comments_count ?? 0
-                  );
-                  const supported = Boolean(
-                    complaint.current_user_supported ?? complaint.user_supported
-                  );
-                  const feedback = complaint.current_user_feedback ?? complaint.user_feedback ?? null;
-                  const isOwnComplaint =
-                    String(complaint.citizen_id || complaint.user_id || "") === String(user?.id || "");
-
-                  return (
-                    <article key={complaint.id} className="rounded-2xl border border-slate-200 p-5 hover:border-indigo-200 hover:shadow-sm transition">
-                      <div className="flex items-start gap-3">
-                        <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                          <MapPin className="w-5 h-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-extrabold text-slate-900">{complaint.title}</h3>
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${getStatusClass(complaint.status)}`}>
-                              {complaint.status}
-                            </span>
-                          </div>
-                          <p className="text-xs font-mono text-slate-400 mt-1">{complaint.complaint_code || complaint.id}</p>
-                        </div>
-                      </div>
-
-                      <p className="text-sm text-slate-600 mt-4 line-clamp-3 whitespace-pre-wrap">
-                        {complaint.description}
-                      </p>
-
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-slate-500">
-                        <span>{complaint.categories?.name || "Uncategorized"}</span>
-                        {(complaint.location || complaint.address) && (
-                          <span className="inline-flex items-center gap-1">
-                            <MapPin className="w-3 h-3" />
-                            {complaint.location || complaint.address}
-                          </span>
-                        )}
-                        <span>{formatDate(complaint.created_at)}</span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 mt-4">
-                        <div className="rounded-xl bg-blue-50 px-3 py-2.5 text-center">
-                          <p className="text-lg font-extrabold text-blue-700">{supportCount}</p>
-                          <p className="text-[11px] font-semibold text-blue-600">Face this too</p>
-                        </div>
-                        <div className="rounded-xl bg-emerald-50 px-3 py-2.5 text-center">
-                          <p className="text-lg font-extrabold text-emerald-700">{genuineCount}</p>
-                          <p className="text-[11px] font-semibold text-emerald-600">Genuine</p>
-                        </div>
-                        <div className="rounded-xl bg-amber-50 px-3 py-2.5 text-center">
-                          <p className="text-lg font-extrabold text-amber-700">{notGenuineCount}</p>
-                          <p className="text-[11px] font-semibold text-amber-600">Not Genuine</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 mt-4">
-                        <button
-                          type="button"
-                          disabled={communityActionLoading || isOwnComplaint}
-                          onClick={() => toggleCommunitySupport(complaint)}
-                          title={isOwnComplaint ? "You cannot support your own complaint." : ""}
-                          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold border transition disabled:opacity-50 ${
-                            supported
-                              ? "bg-blue-600 border-blue-600 text-white"
-                              : "border-blue-200 text-blue-700 hover:bg-blue-50"
-                          }`}
-                        >
-                          <ThumbsUp className="w-4 h-4" />
-                          {supported ? "You face this too" : "I face this too"}
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={communityFeedbackLoading || isOwnComplaint}
-                          onClick={() =>
-                            feedback === "genuine"
-                              ? removeCommunityFeedback(complaint)
-                              : submitCommunityFeedback(complaint, "genuine")
-                          }
-                          title={isOwnComplaint ? "You cannot vote on your own complaint." : ""}
-                          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold border transition disabled:opacity-50 ${
-                            feedback === "genuine"
-                              ? "bg-emerald-600 border-emerald-600 text-white"
-                              : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                          }`}
-                        >
-                          <Check className="w-4 h-4" /> Genuine
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={communityFeedbackLoading || isOwnComplaint}
-                          onClick={() =>
-                            feedback === "not_genuine"
-                              ? removeCommunityFeedback(complaint)
-                              : submitCommunityFeedback(complaint, "not_genuine")
-                          }
-                          title={isOwnComplaint ? "You cannot vote on your own complaint." : ""}
-                          className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold border transition disabled:opacity-50 ${
-                            feedback === "not_genuine"
-                              ? "bg-amber-500 border-amber-500 text-white"
-                              : "border-amber-200 text-amber-700 hover:bg-amber-50"
-                          }`}
-                        >
-                          <Flag className="w-4 h-4" /> Not Genuine
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openCommunityDiscussion(complaint)}
-                          className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-indigo-700 transition ml-auto"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          Discuss {commentCount > 0 ? `(${commentCount})` : ""}
-                        </button>
-                      </div>
-
-                      {isOwnComplaint && (
-                        <p className="text-[11px] text-slate-400 mt-3">
-                          You can view the community discussion for your complaint, but you cannot vote on your own issue.
-                        </p>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Full complaints */}
-        <section id="my-complaints" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Complaint management</p>
-              <h2 className="text-xl font-extrabold mt-1">My Complaints</h2>
-              <p className="text-sm text-slate-500 mt-1">Track every complaint and open its complete timeline.</p>
-            </div>
-            <button onClick={() => fetchComplaints(true)} disabled={refreshing} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold disabled:opacity-50">
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} /> {refreshing ? "Refreshing..." : "Refresh"}
-            </button>
-          </div>
-          <div className="p-5 sm:p-6">
-            {complaints.length === 0 ? (
-              <div className="py-14 text-center"><MapPin className="w-8 h-8 mx-auto text-slate-300" /><p className="font-bold mt-3">No complaints yet</p><button onClick={() => navigate("/citizen/complaints/new")} className="mt-4 px-5 py-2.5 rounded-xl bg-blue-600 text-white font-semibold">Report your first issue</button></div>
-            ) : (
-              <>
-                <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 sm:p-5 mb-5">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div>
-                      <p className="text-xs font-extrabold uppercase tracking-wider text-blue-600">Search & Filters</p>
-                      <p className="text-sm font-semibold text-slate-700 mt-0.5">Find exactly the complaints you want to track.</p>
-                    </div>
-                    <span className="hidden sm:inline-flex px-2.5 py-1 rounded-full bg-white border border-blue-100 text-xs font-bold text-blue-700">
-                      {filteredComplaints.length} matching
-                    </span>
-                  </div>
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-                    <div className="relative flex-1 min-w-0">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        value={complaintFilterSearch}
-                        onChange={(e) => setComplaintFilterSearch(e.target.value)}
-                        placeholder="Search by title, complaint code, category, or location..."
-                        className="w-full h-11 pl-10 pr-4 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
-                      />
-                    </div>
-                    <button onClick={clearComplaintFilters} disabled={!activeComplaintFilters} className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">Clear filters</button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20">
-                      <option value="All">All statuses</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Verified">Verified</option>
-                      <option value="Assigned">Assigned</option>
-                      <option value="In Progress">In Progress</option>
-                      <option value="Resolved">Resolved</option>
-                      <option value="Rejected">Rejected</option>
-                    </select>
-                    <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20">
-                      <option value="All">All categories</option>
-                      {complaintCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-                    </select>
-                    <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20">
-                      <option value="All">All priorities</option>
-                      <option value="Critical">Critical</option>
-                      <option value="High">High</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Low">Low</option>
-                      <option value="Normal">Normal</option>
-                    </select>
-                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20">
-                      <option value="All">Any date</option>
-                      <option value="7d">Last 7 days</option>
-                      <option value="30d">Last 30 days</option>
-                      <option value="90d">Last 90 days</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 mt-3 text-xs text-slate-500">
-                    <span>{activeComplaintFilters ? `${activeComplaintFilters} filter${activeComplaintFilters > 1 ? "s" : ""} active` : "Showing all complaints"}</span>
-                    <span className="font-semibold text-slate-700">{filteredComplaints.length} of {complaints.length} complaints</span>
-                  </div>
-                </div>
-
-                {filteredComplaints.length === 0 ? (
-                  <div className="py-14 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-                    <SearchX className="w-9 h-9 mx-auto text-slate-300" />
-                    <p className="font-bold mt-3">No matching complaints</p>
-                    <p className="text-sm text-slate-500 mt-1">Try changing your search or filters.</p>
-                    <button onClick={clearComplaintFilters} className="mt-4 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold">Reset filters</button>
-                  </div>
-                ) : (
-              <div className="space-y-4">
-                {filteredComplaints.map((complaint) => (
-                  <article key={complaint.id} className="border border-slate-200 rounded-2xl p-5 hover:shadow-md hover:border-blue-200 transition">
-                    <div className="flex flex-col lg:flex-row lg:items-start gap-5">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0"><MapPin className="w-5 h-5 text-blue-600" /></div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-bold text-lg">{complaint.title}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusClass(complaint.status)}`}>{complaint.status}</span>
-                        </div>
-                        <p className="text-xs font-mono text-slate-400 mt-1">{complaint.complaint_code || complaint.id}</p>
-                        <p className="text-sm text-slate-600 mt-3 whitespace-pre-line line-clamp-3">{complaint.description}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-                          <div><p className="text-[11px] uppercase tracking-wide text-slate-400">Category</p><p className="text-sm font-semibold mt-0.5">{complaint.categories?.name || "Not specified"}</p></div>
-                          <div><p className="text-[11px] uppercase tracking-wide text-slate-400">Priority</p><p className="text-sm font-semibold mt-0.5">{complaint.priority || "Normal"}</p></div>
-                          <div><p className="text-[11px] uppercase tracking-wide text-slate-400">Worker</p><p className="text-sm font-semibold mt-0.5">{getAssignedWorkerName(complaint)}</p></div>
-                          <div><p className="text-[11px] uppercase tracking-wide text-slate-400">Submitted</p><p className="text-sm font-semibold mt-0.5">{formatDate(complaint.created_at)}</p></div>
-                        </div>
-                      </div>
-                      <div className="flex flex-row lg:flex-col gap-2">
-                        <button onClick={() => openComplaintDetails(complaint)} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-sm font-semibold"><Eye className="w-4 h-4" /> Details</button>
-                        {complaint.latitude != null && complaint.longitude != null && <a href={`https://www.google.com/maps?q=${complaint.latitude},${complaint.longitude}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold"><MapPin className="w-4 h-4" /> Location</a>}
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-                )}
-              </>
-            )}
-          </div>
-        </section>
-
-        {/* Personal Civic Statistics */}
-        <section id="statistics" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><BarChart3 className="w-5 h-5 text-blue-600" /></div>
-              <div><h2 className="text-xl font-extrabold">Your Civic Statistics</h2><p className="text-sm text-slate-500 mt-1">A personal snapshot of your participation in the city portal.</p></div>
-            </div>
-          </div>
-          <div className="p-5 sm:p-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Submitted</p><p className="text-3xl font-extrabold mt-2">{totalComplaints}</p><p className="text-xs text-slate-400 mt-1">Total complaints</p></div>
-              <div className="rounded-2xl bg-green-50 border border-green-100 p-4"><p className="text-xs font-bold uppercase tracking-wide text-green-700">Resolved</p><p className="text-3xl font-extrabold text-green-700 mt-2">{resolvedComplaints}</p><p className="text-xs text-green-600 mt-1">Successfully resolved</p></div>
-              <div className="rounded-2xl bg-orange-50 border border-orange-100 p-4"><p className="text-xs font-bold uppercase tracking-wide text-orange-700">Active</p><p className="text-3xl font-extrabold text-orange-700 mt-2">{activeComplaints}</p><p className="text-xs text-orange-600 mt-1">Still being processed</p></div>
-              <div className="rounded-2xl bg-yellow-50 border border-yellow-100 p-4"><p className="text-xs font-bold uppercase tracking-wide text-yellow-700">Points</p><p className="text-3xl font-extrabold text-yellow-700 mt-2">{rewardData.total_points}</p><p className="text-xs text-yellow-600 mt-1">Civic reward points</p></div>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
-              <div className="lg:col-span-2 rounded-2xl border border-slate-200 p-5">
-                <div className="flex items-center justify-between mb-4"><div><h3 className="font-bold">Complaint Status Breakdown</h3><p className="text-xs text-slate-500 mt-1">Current distribution of your complaints.</p></div><BarChart3 className="w-5 h-5 text-slate-400" /></div>
-                <div className="space-y-3">
-                  {statusStatistics.map((item) => <div key={item.label}><div className="flex justify-between text-xs mb-1.5"><span className="font-semibold text-slate-600">{item.label}</span><span className="font-bold">{item.value}</span></div><div className="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full ${item.className}`} style={{ width: `${(item.value / maxStatusCount) * 100}%` }} /></div></div>)}
-                </div>
-              </div>
-              <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-5"><p className="text-sm font-semibold text-blue-100">Personal Resolution Rate</p><p className="text-5xl font-extrabold mt-3">{personalResolutionRate}%</p><p className="text-sm text-blue-100 mt-2">Resolved complaints compared with all complaints you submitted.</p><div className="mt-5 h-2.5 rounded-full bg-white/20 overflow-hidden"><div className="h-full rounded-full bg-white" style={{ width: `${personalResolutionRate}%` }} /></div><div className="flex justify-between mt-2 text-xs text-blue-100"><span>{resolvedComplaints} resolved</span><span>{totalComplaints} total</span></div></div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
-              <div className="rounded-2xl border p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Civic Level</p><p className="font-extrabold mt-2">{rewardLevel.name}</p><p className="text-xs text-slate-500 mt-1">{rewardData.total_points} points earned</p></div>
-              <div className="rounded-2xl border p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Achievements</p><p className="font-extrabold mt-2">{unlockedBadgeCount} unlocked</p><p className="text-xs text-slate-500 mt-1">Across {achievementBadges.length} badges</p></div>
-              <div className="rounded-2xl border p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Rejected</p><p className="font-extrabold mt-2">{rejectedComplaints}</p><p className="text-xs text-slate-500 mt-1">Complaints marked rejected</p></div>
-            </div>
-          </div>
-        </section>
-
-        {/* Achievement badges */}
-        <section id="achievements" className="scroll-mt-32 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-600">Achievements</p>
-              <h2 className="text-xl font-extrabold mt-1">Civic Badges</h2>
-              <p className="text-sm text-slate-500 mt-1">Milestones earned from your civic activity.</p>
-            </div>
-            <div className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-sm font-bold">
-              {unlockedBadgeCount}/{achievementBadges.length} unlocked
-            </div>
-          </div>
-
-          <div className="p-5 sm:p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-              {achievementBadges.map((badge) => {
-                const BadgeIcon = badge.icon;
-                const progressPercent = Math.round((badge.progress / badge.target) * 100);
-
-                return (
-                  <div
-                    key={badge.id}
-                    className={`rounded-2xl border p-4 transition ${
-                      badge.unlocked
-                        ? "border-amber-200 bg-gradient-to-br from-amber-50 to-white shadow-sm"
-                        : "border-slate-200 bg-slate-50/60"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                        badge.unlocked
-                          ? "bg-amber-100 text-amber-600"
-                          : "bg-slate-200 text-slate-400"
-                      }`}>
-                        <BadgeIcon className="w-6 h-6" />
-                      </div>
-                      <span className={`text-[10px] font-extrabold uppercase tracking-wide px-2 py-1 rounded-full ${
-                        badge.unlocked
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-200 text-slate-500"
-                      }`}>
-                        {badge.unlocked ? "Unlocked" : "Locked"}
-                      </span>
-                    </div>
-
-                    <h3 className="font-extrabold mt-4">{badge.title}</h3>
-                    <p className="text-xs text-slate-500 mt-1 min-h-[32px]">{badge.description}</p>
-
-                    <div className="mt-4">
-                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1.5">
-                        <span>Progress</span>
-                        <span>{badge.progress}/{badge.target}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            badge.unlocked ? "bg-amber-500" : "bg-slate-400"
-                          }`}
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 rounded-2xl bg-blue-50 border border-blue-100 p-4">
-              <p className="text-sm font-bold text-blue-900">How badges are earned</p>
-              <p className="text-xs text-blue-700 mt-1">
-                Badges are calculated automatically from your submitted complaints,
-                resolved complaints, and civic reward points.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Reward history */}
-        <section id="rewards" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5 sm:p-6 border-b border-slate-100">
-            <p className="text-xs font-bold uppercase tracking-wider text-violet-600">Points history</p>
-            <h2 className="text-xl font-extrabold mt-1">Reward History</h2>
-          </div>
-          <div className="p-5 sm:p-6">
-            {rewardsError ? <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">{rewardsError}</div> : rewardData.rewards.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 border border-dashed rounded-2xl"><Trophy className="w-7 h-7 mx-auto text-slate-300 mb-2" />No reward transactions yet.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {rewardData.rewards.map((reward) => (
-                  <div key={reward.id} className="flex items-center justify-between gap-4 border border-slate-200 rounded-2xl p-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0"><Star className="w-5 h-5 text-emerald-600" /></div>
-                      <div className="min-w-0"><p className="font-semibold truncate">{reward.reason || "Reward earned"}</p><p className="text-xs text-slate-500 mt-1">{formatDate(reward.created_at)}</p></div>
-                    </div>
-                    <span className="font-extrabold text-emerald-600">+{reward.points}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
-
-      {/* Profile modal */}
-      {profileOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setProfileOpen(false)}>
-          <div className="bg-white w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-100 px-5 sm:px-6 py-5 flex items-center justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Account</p><h2 className="text-xl font-extrabold mt-1">My Profile</h2></div>
-              <button onClick={() => setProfileOpen(false)} className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="p-5 sm:p-6 space-y-6">
-              <div className="rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 p-5 flex flex-col sm:flex-row items-center sm:items-start gap-5">
-                <div className="relative">
-                  <div className="w-24 h-24 rounded-3xl bg-blue-600 text-white flex items-center justify-center text-3xl font-bold overflow-hidden border-4 border-white shadow-md">
-                    {profileImagePreview || profileForm.profile_image_url ? <img src={profileImagePreview || profileForm.profile_image_url} alt="Profile" className="w-full h-full object-cover" /> : (user?.name || "C").charAt(0).toUpperCase()}
-                  </div>
-                  <label htmlFor="profile-photo-input" className="absolute -right-2 -bottom-2 w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center cursor-pointer shadow-md"><Camera className="w-4 h-4" /></label>
-                  <input id="profile-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 5 * 1024 * 1024) { setProfileError("Profile photo must be 5 MB or smaller."); event.target.value = ""; return; } setProfileError(""); setProfileImageFile(file); setProfileImagePreview(URL.createObjectURL(file)); }} />
-                </div>
-                <div className="text-center sm:text-left"><p className="text-2xl font-extrabold">{user?.name}</p><p className="text-sm text-slate-500 mt-1">{user?.email}</p><span className="inline-flex mt-3 px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">Citizen account</span></div>
-              </div>
-
-              <form onSubmit={saveProfile} className="space-y-4">
-                <div className="flex items-center gap-2"><Pencil className="w-4 h-4 text-blue-600" /><h3 className="font-bold">Profile Information</h3></div>
-                {profileError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">{profileError}</div>}
-                <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Full Name</label><input value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" required /></div>
-                <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label><input value={user?.email || ""} disabled className="w-full border border-slate-200 bg-slate-50 text-slate-500 rounded-xl px-4 py-3" /></div>
-                <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Phone</label><input value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} maxLength={20} placeholder="Enter phone number" className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-                <div className="flex flex-wrap gap-3">
-                  <label htmlFor="profile-photo-input" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer font-semibold"><Camera className="w-4 h-4" /> {profileImageFile ? "Change Photo" : "Choose Photo"}</label>
-                  {profileImageFile && <button type="button" onClick={() => { setProfileImageFile(null); setProfileImagePreview(user?.profile_image_url || ""); }} className="px-4 py-2.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold">Remove New Photo</button>}
-                </div>
-                <p className="text-xs text-slate-400">JPG, PNG, WEBP or GIF. Maximum 5 MB.</p>
-                <button type="submit" disabled={profileSaving} className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50">{profileSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{profileSaving ? "Saving..." : "Save Profile"}</button>
-              </form>
-
-              <div className="border-t border-slate-100 pt-6">
-                <h3 className="font-bold mb-4">Change Password</h3>
-                {passwordError && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">{passwordError}</div>}
-                {passwordSuccess && <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-3 text-sm">{passwordSuccess}</div>}
-                <form onSubmit={changePassword} className="space-y-3">
-                  <input type="password" value={passwordForm.current_password} onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })} placeholder="Current password" className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-                  <input type="password" value={passwordForm.new_password} onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })} placeholder="New password (minimum 8 characters)" className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" required minLength={8} />
-                  <input type="password" value={passwordForm.confirm_password} onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })} placeholder="Confirm new password" className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" required minLength={8} />
-                  <button type="submit" disabled={passwordSaving} className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-200 font-bold hover:bg-slate-50 disabled:opacity-50">{passwordSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}{passwordSaving ? "Changing..." : "Change Password"}</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* Community discussion modal */}
-      {communityDiscussion && (
-        <div
-          className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setCommunityDiscussion(null)}
-        >
-          <div
-            className="bg-white w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-100 px-5 sm:px-7 py-5 flex items-center justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Community discussion</p>
-                <h2 className="text-xl font-extrabold mt-1 truncate">
-                  {communityDiscussion.complaint?.title}
-                </h2>
-                <p className="text-xs font-mono text-slate-400 mt-1">
-                  {communityDiscussion.complaint?.complaint_code || communityDiscussion.complaint?.id}
+                  View and track all your submitted complaints.
                 </p>
               </div>
               <button
-                onClick={() => setCommunityDiscussion(null)}
-                className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center flex-shrink-0"
+                onClick={() => navigate("/citizen/complaints/new")}
+                className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl shadow text-sm transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Report Problem</span>
+              </button>
+            </div>
+
+            {/* Filter Pills & Search (Screen 6) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-sm space-y-4">
+              {/* Status Filter Pills */}
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { label: "All", count: totalCount, value: "All" },
+                  { label: "Submitted", count: submittedCount, value: "Submitted" },
+                  { label: "In Progress", count: ongoingCount, value: "In Progress" },
+                  { label: "Resolved", count: resolvedCount, value: "Resolved" },
+                  { label: "Rejected", count: rejectedCount, value: "Rejected" },
+                ].map((tab) => (
+                  <button
+                    key={tab.value}
+                    onClick={() => setStatusFilter(tab.value)}
+                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 ${
+                      statusFilter === tab.value
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                        statusFilter === tab.value ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Box */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={complaintFilterSearch}
+                  onChange={(e) => setComplaintFilterSearch(e.target.value)}
+                  placeholder="Search by title, location, category, or code..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Complaints List (Screen 6) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-sm">
+              {filteredComplaints.length === 0 ? (
+                <div className="py-16 text-center">
+                  <SearchX className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-base font-bold text-slate-800">No complaints match your filter</p>
+                  <p className="text-xs text-slate-500 mt-1">Try resetting the status filter or search keyword.</p>
+                  <button
+                    onClick={() => {
+                      setStatusFilter("All");
+                      setComplaintFilterSearch("");
+                    }}
+                    className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredComplaints.map((c) => (
+                    <div
+                      key={c.id}
+                      onClick={() => openComplaintDetails(c)}
+                      className="group flex items-center justify-between gap-3 p-4 rounded-2xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/20 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        {/* Thumbnail */}
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-slate-100 border border-slate-200/80 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          {c.photo_url ? (
+                            <img
+                              src={c.photo_url}
+                              alt={c.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition"
+                            />
+                          ) : (
+                            <Wrench className="w-6 h-6 text-slate-400" />
+                          )}
+                        </div>
+
+                        {/* Title & Metadata */}
+                        <div className="min-w-0">
+                          <h4 className="text-sm sm:text-base font-bold text-slate-900 truncate group-hover:text-blue-600 transition">
+                            {c.title}
+                          </h4>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1">
+                            <span className="flex items-center gap-1 truncate">
+                              <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                              <span className="truncate">{c.address || c.categories?.name || "Location"}</span>
+                            </span>
+                            {c.complaint_code && (
+                              <span className="text-slate-400 font-mono text-[11px]">
+                                #{c.complaint_code}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Side: Date & Status Pill */}
+                      <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+                        <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                          {getTimeAgo(c.created_at)}
+                        </span>
+                        {getStatusBadge(c.status)}
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 3: INTERACTIVE MAP VIEW                                  */}
+        {/* ============================================================ */}
+        {activeTab === "map" && (
+          <div className="space-y-6 animate-fadeIn">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Civic Map
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Geographic visualization of civic complaints in your area.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-4 sm:p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Mapped Issues: {mapComplaints.length}
+                </span>
+                <span className="text-xs text-slate-500">Click any marker to inspect details</span>
+              </div>
+
+              <div className="h-[500px] w-full rounded-2xl overflow-hidden border border-slate-200 relative">
+                <MapContainer center={mapCenter} zoom={13} className="h-full w-full">
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <CitizenMapBounds points={mapComplaints} />
+                  {mapComplaints.map((c) => (
+                    <CircleMarker
+                      key={c.id}
+                      center={[c.latitude, c.longitude]}
+                      radius={9}
+                      pathOptions={{
+                        color:
+                          c.status === "Resolved"
+                            ? "#10B981"
+                            : c.status === "In Progress"
+                            ? "#F59E0B"
+                            : "#3B82F6",
+                        fillColor:
+                          c.status === "Resolved"
+                            ? "#10B981"
+                            : c.status === "In Progress"
+                            ? "#F59E0B"
+                            : "#3B82F6",
+                        fillOpacity: 0.8,
+                      }}
+                    >
+                      <Popup>
+                        <div className="p-1 space-y-1">
+                          <p className="font-bold text-slate-900 text-sm">{c.title}</p>
+                          <p className="text-xs text-slate-500">{c.address || c.categories?.name}</p>
+                          <div className="pt-2">
+                            <button
+                              onClick={() => openComplaintDetails(c)}
+                              className="text-xs font-bold text-blue-600 hover:underline"
+                            >
+                              Open Complaint Details &rarr;
+                            </button>
+                          </div>
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  ))}
+                </MapContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 4: COMMUNITY ENGAGEMENT FEED                             */}
+        {/* ============================================================ */}
+        {activeTab === "community" && (
+          <div className="space-y-6 animate-fadeIn">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Community Feed
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Support, verify, and discuss neighborhood issues submitted by fellow citizens.
+              </p>
+            </div>
+
+            {communityLoading ? (
+              <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-600 mb-2" />
+                <p className="text-sm text-slate-500">Loading community issues...</p>
+              </div>
+            ) : communityComplaints.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80">
+                <p className="font-bold text-slate-800">No community complaints found</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {communityComplaints.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm hover:shadow-md transition flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                          {item.categories?.name || "Civic Issue"}
+                        </span>
+                        {getStatusBadge(item.status)}
+                      </div>
+                      <h3 className="font-bold text-base text-slate-900 line-clamp-1">{item.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1.5 line-clamp-2">{item.description}</p>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-3">
+                        <Clock3 className="w-3.5 h-3.5" />
+                        <span>{getTimeAgo(item.created_at)}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-5 border-t border-slate-100 mt-5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {/* Support / Upvote */}
+                        <button
+                          onClick={() => toggleCommunitySupport(item)}
+                          disabled={communityActionLoading}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                            Boolean(item.current_user_supported ?? item.user_supported)
+                              ? "bg-blue-600 text-white"
+                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5" />
+                          <span>{item.support_count || 0}</span>
+                        </button>
+
+                        {/* Genuine Feedback */}
+                        <button
+                          onClick={() =>
+                            item.user_feedback === "genuine"
+                              ? removeCommunityFeedback(item)
+                              : submitCommunityFeedback(item, "genuine")
+                          }
+                          disabled={communityFeedbackLoading}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition ${
+                            item.user_feedback === "genuine"
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                          title="Verify as genuine"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{item.genuine_count || 0}</span>
+                        </button>
+                      </div>
+
+                      {/* Discussion Trigger */}
+                      <button
+                        onClick={() => openCommunityDiscussion(item)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 p-1"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>{item.comment_count || 0} Comments</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 5: CIVIC REWARDS & LEADERBOARD                           */}
+        {/* ============================================================ */}
+        {activeTab === "rewards" && (
+          <div className="space-y-6 sm:space-y-8 animate-fadeIn">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Civic Leaderboard &amp; Rewards
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Earn recognition and points for reporting and verifying community issues.
+              </p>
+            </div>
+
+            {/* Achievement Badges Grid */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Your Civic Achievements</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {achievementBadges.map((badge) => {
+                  const Icon = badge.icon;
+                  return (
+                    <div
+                      key={badge.id}
+                      className={`rounded-2xl p-4 border text-center transition ${
+                        badge.unlocked
+                          ? "bg-emerald-50/50 border-emerald-200 shadow-sm"
+                          : "bg-slate-50 border-slate-200 opacity-60"
+                      }`}
+                    >
+                      <div
+                        className={`w-12 h-12 rounded-xl mx-auto flex items-center justify-center mb-2 ${
+                          badge.unlocked
+                            ? "bg-emerald-600 text-white shadow"
+                            : "bg-slate-200 text-slate-400"
+                        }`}
+                      >
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <p className="font-bold text-xs text-slate-900">{badge.title}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">{badge.desc}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Leaderboard Table */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Top Citizen Contributors</h2>
+              {leaderboardLoading ? (
+                <div className="py-8 text-center text-slate-500">Loading leaderboard...</div>
+              ) : leaderboard.length === 0 ? (
+                <div className="py-8 text-center text-slate-500">No leaderboard entries found.</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {leaderboard.map((c, i) => (
+                    <div
+                      key={c.user_id || i}
+                      className="py-3.5 flex items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${
+                            i === 0
+                              ? "bg-amber-100 text-amber-700"
+                              : i === 1
+                              ? "bg-slate-200 text-slate-700"
+                              : i === 2
+                              ? "bg-orange-100 text-orange-700"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          #{i + 1}
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm text-slate-900">{c.name || "Citizen"}</p>
+                          <p className="text-[11px] text-slate-400">{c.complaints_resolved || 0} resolved</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="font-black text-sm text-purple-600">
+                          {c.total_points || 0} pts
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ============================================================ */}
+      {/* 2. COMPLAINT DETAILS MODAL (Direct Match to Screen 7)        */}
+      {/* ============================================================ */}
+      {selectedComplaint && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fadeIn"
+          onClick={closeComplaintDetails}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-100 transition-all"
+          >
+            {/* Modal Header & Breadcrumb (Screen 7) */}
+            <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-100 p-5 sm:p-6 flex items-center justify-between z-10">
+              <div>
+                <p className="text-xs font-semibold text-slate-400">
+                  My Complaints &gt; <span className="text-blue-600 font-bold">Complaint Details</span>
+                </p>
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">
+                  {selectedComplaint.title}
+                </h3>
+              </div>
+              <button
+                onClick={closeComplaintDetails}
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 sm:p-7 space-y-5">
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5">
-                <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                  {communityDiscussion.complaint?.description}
-                </p>
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <span className="px-3 py-1.5 rounded-full bg-white text-xs font-bold text-blue-700 border border-blue-100">
-                    👍 {Number(communityDiscussion.support_count ?? 0)} support
+            <div className="p-6 space-y-6">
+              {/* Photo hero if available */}
+              {selectedComplaint.photo_url && (
+                <div className="rounded-2xl overflow-hidden border border-slate-200 max-h-72 bg-slate-100">
+                  <img
+                    src={selectedComplaint.photo_url}
+                    alt={selectedComplaint.title}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
+              {/* Status & Code */}
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <div>
+                  <span className="text-xs text-slate-400 font-mono">
+                    #{selectedComplaint.complaint_code || selectedComplaint.id}
                   </span>
-                  <span className="px-3 py-1.5 rounded-full bg-white text-xs font-bold text-emerald-700 border border-emerald-100">
-                    ✓ {Number(communityDiscussion.genuine_count ?? 0)} genuine
-                  </span>
-                  <span className="px-3 py-1.5 rounded-full bg-white text-xs font-bold text-amber-700 border border-amber-100">
-                    ⚠ {Number(communityDiscussion.not_genuine_count ?? 0)} not genuine
-                  </span>
+                  <div className="mt-1">{getStatusBadge(selectedComplaint.status)}</div>
+                </div>
+                <div className="text-right text-xs text-slate-500">
+                  <div>Submitted</div>
+                  <div className="font-bold text-slate-800">{formatDate(selectedComplaint.created_at)}</div>
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-4">
+              {/* Description & Location */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Description</h4>
+                <p className="text-sm text-slate-700 leading-relaxed bg-white border border-slate-200/70 p-4 rounded-2xl">
+                  {selectedComplaint.description}
+                </p>
+                {selectedComplaint.address && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600 pt-1">
+                    <MapPin className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <span>{selectedComplaint.address}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Assigned Worker Info */}
+              <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                    <Wrench className="w-5 h-5" />
+                  </div>
                   <div>
-                    <h3 className="font-extrabold text-lg">Comments</h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Share useful local context or information about this issue.
+                    <p className="text-xs text-slate-500">Assigned Municipal Worker</p>
+                    <p className="text-sm font-bold text-slate-900">
+                      {getAssignedWorkerName(selectedComplaint)}
                     </p>
                   </div>
-                  <span className="text-xs font-bold text-slate-500">
-                    {Array.isArray(communityDiscussion.comments) ? communityDiscussion.comments.length : 0} comments
-                  </span>
                 </div>
+              </div>
 
-                <form onSubmit={submitCommunityComment} className="flex flex-col sm:flex-row gap-2 mb-5">
-                  <input
-                    value={communityComment}
-                    onChange={(event) => setCommunityComment(event.target.value)}
-                    placeholder="Write a comment..."
-                    maxLength={1000}
-                    className="flex-1 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={communityActionLoading || !communityComment.trim()}
-                    className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    Comment
-                  </button>
-                </form>
+              {/* Vertical Lifecycle Status Timeline (Direct Match to Screen 7) */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Status Timeline
+                </h4>
 
-                {!Array.isArray(communityDiscussion.comments) || communityDiscussion.comments.length === 0 ? (
-                  <div className="py-10 text-center border border-dashed border-slate-200 rounded-2xl">
-                    <MessageCircle className="w-8 h-8 mx-auto text-slate-300" />
-                    <p className="font-bold mt-3">No comments yet</p>
-                    <p className="text-sm text-slate-500 mt-1">Be the first citizen to comment.</p>
+                {historyLoading ? (
+                  <div className="py-6 text-center text-xs text-slate-400">
+                    <RefreshCw className="w-5 h-5 animate-spin mx-auto text-blue-600 mb-1" />
+                    Loading timeline...
+                  </div>
+                ) : statusHistory.length === 0 ? (
+                  <div className="py-4 text-xs text-slate-400 text-center">
+                    No status updates recorded yet.
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {communityDiscussion.comments.map((comment) => {
-                      const commentUserId = comment.user_id || comment.citizen_id;
-                      const isOwnComment = String(commentUserId || "") === String(user?.id || "");
-
-                      return (
-                        <div key={comment.id} className="rounded-2xl border border-slate-200 p-4">
-                          <div className="flex items-start gap-3">
-                            <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold flex-shrink-0">
-                              {(comment.user?.name || comment.user_name || "C").charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-bold text-slate-800">
-                                  {comment.user?.name || comment.user_name || "Citizen"}
-                                </p>
-                                <span className="text-[11px] text-slate-400">
-                                  {formatDate(comment.created_at)}
-                                </span>
-                              </div>
-                              <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap break-words">
-                                {comment.comment}
-                              </p>
-                              {isOwnComment && (
-                                <button
-                                  type="button"
-                                  onClick={() => deleteCommunityComment(comment.id)}
-                                  disabled={communityActionLoading}
-                                  className="mt-2 text-xs font-bold text-red-600 hover:text-red-700 disabled:opacity-50"
-                                >
-                                  Delete comment
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                  <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                    {statusHistory.map((h, i) => (
+                      <div key={h.id || i} className="relative">
+                        <div
+                          className={`absolute -left-6 top-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center ${
+                            h.new_status === "Resolved"
+                              ? "bg-emerald-500"
+                              : h.new_status === "In Progress"
+                              ? "bg-amber-500"
+                              : "bg-blue-600"
+                          }`}
+                        >
+                          <Check className="w-3 h-3 text-white" />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">
-                Community feedback is informational. Official complaint verification and status decisions remain under the city's administrative workflow.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Complaint details modal */}
-      {selectedComplaint && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeComplaintDetails}>
-          <div className="bg-white w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-100 px-5 sm:px-7 py-5 flex items-center justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Complaint tracking</p><h2 className="text-xl font-extrabold mt-1">{selectedComplaint.title}</h2><p className="text-xs font-mono text-slate-400 mt-1">{selectedComplaint.complaint_code || selectedComplaint.id}</p></div>
-              <button onClick={closeComplaintDetails} className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center"><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="p-5 sm:p-7 space-y-5">
-              <div className="rounded-2xl bg-slate-950 text-white p-5 sm:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div><p className="text-xs uppercase tracking-wider text-slate-400">Current status</p><span className={`inline-flex mt-2 px-3 py-1.5 rounded-full text-sm font-bold ${getStatusClass(selectedComplaint.status)}`}>{selectedComplaint.status}</span></div>
-                  <div className="sm:text-right"><p className="text-xs text-slate-400">Last update</p><p className="font-semibold mt-1">{statusHistory.length ? formatDate(statusHistory[statusHistory.length - 1].created_at) : formatDate(selectedComplaint.created_at)}</p></div>
-                </div>
-                <p className="text-sm text-slate-300 mt-4">{getCurrentStatusDescription(selectedComplaint.status)}</p>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                <div className="lg:col-span-2 rounded-2xl border border-slate-200 p-5">
-                  <h3 className="font-extrabold text-lg">Complaint Information</h3>
-                  <p className="text-sm text-slate-500 mt-3">Description</p>
-                  <p className="text-slate-700 mt-1 whitespace-pre-wrap">{selectedComplaint.description}</p>
-                  <div className="grid grid-cols-2 gap-4 mt-5">
-                    <div><p className="text-xs text-slate-400 uppercase">Category</p><p className="font-semibold mt-1">{selectedComplaint.categories?.name || "Not specified"}</p></div>
-                    <div><p className="text-xs text-slate-400 uppercase">Priority</p><p className="font-semibold mt-1">{selectedComplaint.priority || "Normal"}</p></div>
-                    <div><p className="text-xs text-slate-400 uppercase">Submitted</p><p className="font-semibold mt-1">{formatDate(selectedComplaint.created_at)}</p></div>
-                    {selectedComplaint.resolved_at && <div><p className="text-xs text-slate-400 uppercase">Resolved</p><p className="font-semibold mt-1">{formatDate(selectedComplaint.resolved_at)}</p></div>}
-                  </div>
-                  {selectedComplaint.address && <div className="mt-5"><p className="text-xs text-slate-400 uppercase">Address</p><p className="font-semibold mt-1">{selectedComplaint.address}</p></div>}
-                  {selectedComplaint.latitude != null && selectedComplaint.longitude != null && <a href={`https://www.google.com/maps?q=${selectedComplaint.latitude},${selectedComplaint.longitude}`} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue-200 text-blue-700 hover:bg-blue-50 text-sm font-semibold"><MapPin className="w-4 h-4" /> Open Location</a>}
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-5">
-                  <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Wrench className="w-5 h-5 text-blue-600" /></div><div><h3 className="font-extrabold">Assigned Worker</h3><p className="text-xs text-slate-500">Complaint handler</p></div></div>
-                  {selectedComplaint.assigned_worker_id || selectedComplaint.workers ? (
-                    <div className="rounded-xl bg-slate-50 p-4"><p className="font-bold">{getAssignedWorkerName(selectedComplaint)}</p>{getAssignedWorkerDepartment(selectedComplaint) && <p className="text-sm text-slate-600 mt-1">{getAssignedWorkerDepartment(selectedComplaint)}</p>}{getAssignedWorkerSpecialization(selectedComplaint) && <p className="text-sm text-slate-600 mt-1">{getAssignedWorkerSpecialization(selectedComplaint)}</p>}</div>
-                  ) : <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">A worker has not been assigned yet.</div>}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-5 sm:p-6">
-                <div className="flex items-center justify-between gap-3 mb-6">
-                  <div><h3 className="font-extrabold text-lg">Status Timeline</h3><p className="text-sm text-slate-500 mt-1">Every recorded status change is shown below.</p></div>
-                  <button onClick={() => getHistory(selectedComplaint.id)} disabled={historyLoading} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold"><RefreshCw className={`w-4 h-4 ${historyLoading ? "animate-spin" : ""}`} /> Refresh</button>
-                </div>
-                {historyLoading ? <div className="py-10 text-center text-slate-500"><RefreshCw className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-2" />Loading timeline...</div> : historyError ? <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">{historyError}</div> : statusHistory.length === 0 ? <div className="py-10 text-center text-slate-500"><Clock3 className="w-8 h-8 mx-auto text-slate-300 mb-2" />No status history available.</div> : (
-                  <div className="relative">
-                    {statusHistory.map((history, index) => {
-                      const isLast = index === statusHistory.length - 1;
-                      return (
-                        <div key={history.id || `${history.created_at}-${index}`} className="relative flex gap-4">
-                          {!isLast && <div className="absolute left-4 top-9 bottom-0 w-px bg-slate-200" />}
-                          <div className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${getStatusDotClass(history.new_status)}`}>
-                            {history.new_status === "Resolved" ? <CheckCircle2 className="w-4 h-4 text-white" /> : history.new_status === "Rejected" ? <XCircle className="w-4 h-4 text-white" /> : <Clock3 className="w-4 h-4 text-white" />}
-                          </div>
-                          <div className="flex-1 pb-7">
-                            <div className="flex flex-wrap items-center gap-2"><span className={`px-2.5 py-1 rounded-full border text-xs font-bold ${getHistoryStatusClass(history.new_status)}`}>{history.new_status}</span>{history.old_status && <span className="text-xs text-slate-400">{history.old_status} → {history.new_status}</span>}</div>
-                            <p className="text-xs text-slate-500 mt-2">{formatDate(history.created_at)}</p>
-                            {history.remarks && <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-xs font-semibold text-slate-500">Remarks</p><p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap">{history.remarks}</p></div>}
-                            {history.changed_by && <p className="text-[11px] text-slate-400 mt-2">Updated by: {history.changed_by}</p>}
-                          </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{h.new_status}</p>
+                          <p className="text-[11px] text-slate-400">{formatDate(h.created_at)}</p>
+                          {h.remarks && (
+                            <p className="text-xs text-slate-600 mt-1 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                              {h.remarks}
+                            </p>
+                          )}
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -2550,6 +1934,315 @@ function CitizenDashboard() {
           </div>
         </div>
       )}
+
+      {/* ============================================================ */}
+      {/* 3. TRACK COMPLAINT BY ID MODAL                               */}
+      {/* ============================================================ */}
+      {showTrackModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-lg text-slate-900">Track Civic Issue</h3>
+              <button
+                onClick={() => setShowTrackModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Enter your complaint UUID or complaint reference code (e.g. #CMP-...)
+            </p>
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={complaintSearch}
+                onChange={(e) => setComplaintSearch(e.target.value)}
+                placeholder="Enter complaint ID or code..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {trackMessage && (
+                <p className="text-xs text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200">
+                  {trackMessage}
+                </p>
+              )}
+              <button
+                onClick={trackComplaintById}
+                disabled={trackingComplaint}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2"
+              >
+                {trackingComplaint ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Track Progress"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 4. EDIT PROFILE & PASSWORD MODAL                             */}
+      {/* ============================================================ */}
+      {profileOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-100 my-8">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-xl text-slate-900">Citizen Profile Settings</h3>
+              <button
+                onClick={() => setProfileOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {profileError && (
+              <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-xl text-xs">{profileError}</div>
+            )}
+            {passwordError && (
+              <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-xl text-xs">{passwordError}</div>
+            )}
+            {passwordSuccess && (
+              <div className="mb-4 bg-emerald-50 text-emerald-700 p-3 rounded-xl text-xs">
+                {passwordSuccess}
+              </div>
+            )}
+
+            {/* Profile Info Form */}
+            <form onSubmit={saveProfile} className="space-y-4 mb-8">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Personal Information
+              </h4>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Profile Photo</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      setProfileImageFile(e.target.files[0]);
+                      setProfileImagePreview(URL.createObjectURL(e.target.files[0]));
+                    }
+                  }}
+                  className="text-xs text-slate-500"
+                />
+                {profileImagePreview && (
+                  <img
+                    src={profileImagePreview}
+                    alt="Preview"
+                    className="w-12 h-12 rounded-full mt-2 object-cover border"
+                  />
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={profileSaving}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition"
+              >
+                {profileSaving ? "Saving Profile..." : "Update Profile"}
+              </button>
+            </form>
+
+            {/* Password Change Form */}
+            <form onSubmit={changePassword} className="space-y-4 pt-4 border-t border-slate-100">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Change Password
+              </h4>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.current_password}
+                  onChange={(e) =>
+                    setPasswordForm({ ...passwordForm, current_password: e.target.value })
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">New Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.new_password}
+                  onChange={(e) =>
+                    setPasswordForm({ ...passwordForm, new_password: e.target.value })
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm"
+                  placeholder="Min 8 characters"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Confirm New Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.confirm_password}
+                  onChange={(e) =>
+                    setPasswordForm({ ...passwordForm, confirm_password: e.target.value })
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={passwordSaving}
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition"
+              >
+                {passwordSaving ? "Updating Password..." : "Change Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 5. COMMUNITY COMMENTS DRAWER                                 */}
+      {/* ============================================================ */}
+      {communityDiscussion && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex justify-end"
+          onClick={() => setCommunityDiscussion(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col justify-between p-6 animate-slideLeft"
+          >
+            <div>
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <h3 className="font-extrabold text-base text-slate-900">Community Discussion</h3>
+                <button
+                  onClick={() => setCommunityDiscussion(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="pt-3">
+                <p className="font-bold text-sm text-slate-900">
+                  {communityDiscussion.complaint?.title}
+                </p>
+                <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                  {communityDiscussion.complaint?.description}
+                </p>
+              </div>
+
+              {/* Comments list */}
+              <div className="mt-5 space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                {(communityDiscussion.comments || []).length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-8">
+                    No comments yet. Start the conversation.
+                  </p>
+                ) : (
+                  (communityDiscussion.comments || []).map((cm) => (
+                    <div key={cm.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800">{cm.users?.name || "Citizen"}</span>
+                        <span className="text-[10px] text-slate-400">{getTimeAgo(cm.created_at)}</span>
+                      </div>
+                      <p className="text-slate-700 mt-1">{cm.comment}</p>
+                      {String(cm.user_id) === String(user?.id) && (
+                        <button
+                          onClick={() => deleteCommunityComment(cm.id)}
+                          className="text-[10px] text-red-500 hover:underline mt-1 font-semibold"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Comment input form */}
+            <form onSubmit={submitCommunityComment} className="pt-4 border-t border-slate-100 flex gap-2">
+              <input
+                type="text"
+                value={communityComment}
+                onChange={(e) => setCommunityComment(e.target.value)}
+                placeholder="Share your thoughts..."
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={communityActionLoading || !communityComment.trim()}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold px-4 py-2 rounded-xl text-xs transition"
+              >
+                Post
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 6. MOBILE BOTTOM NAVIGATION (Matches Reference Screen 8)    */}
+      {/* ============================================================ */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 px-4 py-2 flex items-center justify-around text-slate-600">
+        <button
+          onClick={() => setActiveTab("home")}
+          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+            activeTab === "home" ? "text-blue-600" : "text-slate-500"
+          }`}
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          <span>Home</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("complaints")}
+          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+            activeTab === "complaints" ? "text-blue-600" : "text-slate-500"
+          }`}
+        >
+          <ListChecks className="w-5 h-5" />
+          <span>Complaints</span>
+        </button>
+        <button
+          onClick={() => navigate("/citizen/complaints/new")}
+          className="flex flex-col items-center -mt-5"
+        >
+          <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg">
+            <Plus className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-bold text-slate-700 mt-1">Report</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("map")}
+          className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+            activeTab === "map" ? "text-blue-600" : "text-slate-500"
+          }`}
+        >
+          <MapIcon className="w-5 h-5" />
+          <span>Map</span>
+        </button>
+        <button
+          onClick={openProfile}
+          className="flex flex-col items-center gap-1 text-[10px] font-bold text-slate-500"
+        >
+          <UserRound className="w-5 h-5" />
+          <span>Profile</span>
+        </button>
+      </nav>
     </div>
   );
 }

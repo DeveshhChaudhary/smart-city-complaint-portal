@@ -2,31 +2,46 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   AlertCircle,
-  BarChart3,
-  Ban,
-  CheckCircle2,
-  UserCheck,
-  UserX,
-  Clock3,
-  Target,
-  TrendingUp,
   AlertTriangle,
+  Award,
+  Ban,
+  BarChart3,
+  Building2,
+  Calendar,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
   Eye,
-  LogOut,
-  MapPinned,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  UserRound,
-  UserPlus,
-  Users,
-  Wrench,
-  X,
+  FileText,
+  Filter,
+  Folder,
   LayoutDashboard,
   ClipboardList,
-  UsersRound,
-  Map,
-  ChevronRight,
+  LogOut,
+  Map as MapIcon,
+  MapPin,
+  MapPinned,
+  Megaphone,
+  Menu,
+  MoreVertical,
+  Phone,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  ShieldCheck,
+  TrendingUp,
+  User,
+  UserCheck,
+  UserPlus,
+  UserRound,
+  Users,
+  UserX,
+  Wrench,
+  X,
+  XCircle,
+  ArrowRight,
 } from "lucide-react";
 import {
   Bar,
@@ -53,14 +68,33 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
+import smartCityLogo from "../../assets/smart-city-logo.png";
 
 const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
+
 const generateWorkerCode = () => {
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(100 + Math.random() * 900);
   return `WRK-${timestamp}${random}`;
 };
 
+// Fallback images based on category/title
+const getFallbackImage = (categoryName = "", title = "") => {
+  const text = `${categoryName} ${title}`.toLowerCase();
+  if (text.includes("road") || text.includes("pothole")) {
+    return "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80";
+  }
+  if (text.includes("light") || text.includes("lamp") || text.includes("electric")) {
+    return "https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=600&auto=format&fit=crop&q=80";
+  }
+  if (text.includes("garbage") || text.includes("waste") || text.includes("trash") || text.includes("clean")) {
+    return "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=80";
+  }
+  if (text.includes("water") || text.includes("drain") || text.includes("leak") || text.includes("pipe")) {
+    return "https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80";
+  }
+  return "https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=600&auto=format&fit=crop&q=80";
+};
 
 function MapBoundsController({ complaints }) {
   const map = useMap();
@@ -74,24 +108,19 @@ function MapBoundsController({ complaints }) {
         !Number.isNaN(Number(complaint.longitude))
     );
 
-    if (validComplaints.length === 0) {
-      return;
-    }
+    if (validComplaints.length === 0) return;
 
     if (validComplaints.length === 1) {
       map.setView(
-        [
-          Number(validComplaints[0].latitude),
-          Number(validComplaints[0].longitude),
-        ],
+        [Number(validComplaints[0].latitude), Number(validComplaints[0].longitude)],
         14
       );
       return;
     }
 
-    const bounds = validComplaints.map((complaint) => [
-      Number(complaint.latitude),
-      Number(complaint.longitude),
+    const bounds = validComplaints.map((c) => [
+      Number(c.latitude),
+      Number(c.longitude),
     ]);
 
     map.fitBounds(bounds, {
@@ -106,19 +135,51 @@ function MapBoundsController({ complaints }) {
 function AdminDashboard() {
   const navigate = useNavigate();
 
+  // Authentication & User state
   const [token, setToken] = useState("");
   const [user, setUser] = useState(null);
 
+  // Data states
   const [complaints, setComplaints] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [managedUsers, setManagedUsers] = useState([]);
-  const [managementTab, setManagementTab] = useState("workers");
+
+  // Active navigation section
+  const [activeNav, setActiveNav] = useState("dashboard"); // 'dashboard' | 'complaints' | 'map' | 'users' | 'workers' | 'departments' | 'analytics' | 'reports' | 'rewards' | 'announcements' | 'settings'
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // Search & Filters
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState("30");
+  const [mapViewMode, setMapViewMode] = useState("markers"); // 'markers' | 'heatmap'
+
+  // Loading & Alert states
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  // Complaint Details & History State
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [statusHistory, setStatusHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  // Assignment & Status update form in Details
+  const [detailSelectedWorker, setDetailSelectedWorker] = useState("");
+  const [detailSelectedStatus, setDetailSelectedStatus] = useState("");
+  const [detailRemarks, setDetailRemarks] = useState("");
+  const [assigningId, setAssigningId] = useState(null);
+  const [verifyingId, setVerifyingId] = useState(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState(null);
+
+  // Worker Management & Add Worker Modal State
   const [managementSearch, setManagementSearch] = useState("");
   const [managementLoading, setManagementLoading] = useState(false);
   const [managementActionId, setManagementActionId] = useState(null);
-  const [activeNav, setActiveNav] = useState("overview");
-
-  // Add worker form
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
   const [addingWorker, setAddingWorker] = useState(false);
   const [workerForm, setWorkerForm] = useState({
@@ -130,33 +191,9 @@ function AdminDashboard() {
     specialization: "",
   });
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-
-  const [selectedComplaint, setSelectedComplaint] =
-    useState(null);
-
-  const [statusHistory, setStatusHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
-
-  const [assigningId, setAssigningId] = useState(null);
-  const [verifyingId, setVerifyingId] = useState(null);
-
-  // Advanced analytics period: 7, 30, 90 days or all available data.
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("30");
-  const [mapViewMode, setMapViewMode] = useState("markers");
-
   // ==========================================================
   // INITIAL AUTH
   // ==========================================================
-
   useEffect(() => {
     const savedToken = localStorage.getItem("access_token");
     const savedUser = localStorage.getItem("user");
@@ -168,7 +205,6 @@ function AdminDashboard() {
 
     try {
       const parsedUser = JSON.parse(savedUser);
-
       if (parsedUser.role !== "admin") {
         navigate("/login", { replace: true });
         return;
@@ -176,26 +212,19 @@ function AdminDashboard() {
 
       setToken(savedToken);
       setUser(parsedUser);
-
       loadDashboard(savedToken);
-    } catch (error) {
-      console.error("Admin auth error:", error);
-
+    } catch (err) {
+      console.error("Admin auth error:", err);
       localStorage.removeItem("access_token");
       localStorage.removeItem("user");
-
       navigate("/login", { replace: true });
     }
   }, [navigate]);
 
   // ==========================================================
-  // LOAD DASHBOARD
+  // LOAD DASHBOARD DATA
   // ==========================================================
-
-  const loadDashboard = async (
-    authToken,
-    isRefresh = false
-  ) => {
+  const loadDashboard = async (authToken = token, isRefresh = false) => {
     if (!authToken) {
       navigate("/login", { replace: true });
       return;
@@ -209,63 +238,35 @@ function AdminDashboard() {
       }
 
       setError("");
-      setSuccess("");
 
       const headers = {
         Authorization: `Bearer ${authToken}`,
       };
 
-      const [
-        complaintsResponse,
-        workersResponse,
-        usersResponse,
-      ] = await Promise.all([
-        axios.get(`${API_BASE_URL}/api/complaints/`, {
-          headers,
-        }),
-        axios.get(`${API_BASE_URL}/api/admin/workers`, {
-          headers,
-        }),
-        axios.get(`${API_BASE_URL}/api/admin/users`, {
-          headers,
-        }),
+      const [complaintsRes, workersRes, usersRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/complaints/`, { headers }),
+        axios.get(`${API_BASE_URL}/api/admin/workers`, { headers }),
+        axios.get(`${API_BASE_URL}/api/admin/users`, { headers }),
       ]);
 
-      if (complaintsResponse.data?.success) {
-        setComplaints(
-          complaintsResponse.data.complaints || []
-        );
+      if (complaintsRes.data?.success) {
+        setComplaints(complaintsRes.data.complaints || []);
       }
-
-      if (workersResponse.data?.success) {
-        setWorkers(
-          workersResponse.data.workers || []
-        );
+      if (workersRes.data?.success) {
+        setWorkers(workersRes.data.workers || []);
       }
-
-      if (usersResponse.data?.success) {
-        setManagedUsers(
-          usersResponse.data.users || []
-        );
+      if (usersRes.data?.success) {
+        setManagedUsers(usersRes.data.users || []);
       }
-    } catch (error) {
-      console.error("Admin dashboard error:", error);
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      console.error("Admin dashboard load error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
         localStorage.removeItem("access_token");
         localStorage.removeItem("user");
-
         navigate("/login", { replace: true });
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to load admin dashboard."
-      );
+      setError(err.response?.data?.detail || "Failed to load admin dashboard.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -273,13 +274,10 @@ function AdminDashboard() {
   };
 
   // ==========================================================
-  // LOAD COMPLAINT HISTORY
+  // COMPLAINT DETAILS & HISTORY
   // ==========================================================
-
   const loadComplaintHistory = async (complaintId) => {
-    if (!complaintId || !token) {
-      return;
-    }
+    if (!complaintId || !token) return;
 
     try {
       setHistoryLoading(true);
@@ -288,87 +286,52 @@ function AdminDashboard() {
 
       const response = await axios.get(
         `${API_BASE_URL}/api/complaints/${complaintId}/history`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (response.data?.success) {
-        setStatusHistory(
-          response.data.history || []
-        );
+        setStatusHistory(response.data.history || []);
       } else {
         setStatusHistory([]);
       }
-    } catch (error) {
-      console.error(
-        "Complaint history error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("user");
-
-        navigate("/login", { replace: true });
+    } catch (err) {
+      console.error("Complaint history error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        handleLogout();
         return;
       }
-
-      setHistoryError(
-        error.response?.data?.detail ||
-          "Failed to load complaint status history."
-      );
+      setHistoryError(err.response?.data?.detail || "Failed to load complaint status history.");
     } finally {
       setHistoryLoading(false);
     }
   };
 
-  // ==========================================================
-  // OPEN COMPLAINT
-  // ==========================================================
-
   const openComplaint = async (complaint) => {
     setSelectedComplaint(complaint);
+    setDetailSelectedWorker(complaint.assigned_worker_id || "");
+    setDetailSelectedStatus(complaint.status || "Submitted");
+    setDetailRemarks("");
     await loadComplaintHistory(complaint.id);
   };
-
-  // ==========================================================
-  // CLOSE COMPLAINT
-  // ==========================================================
 
   const closeComplaint = () => {
     setSelectedComplaint(null);
     setStatusHistory([]);
     setHistoryError("");
+    setDetailRemarks("");
   };
-
-  // ==========================================================
-  // LOGOUT
-  // ==========================================================
 
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("user");
-
     navigate("/login", { replace: true });
   };
 
   // ==========================================================
-  // ASSIGN WORKER
+  // ACTIONS: ASSIGN, VERIFY, UPDATE STATUS
   // ==========================================================
-
-  const assignWorker = async (
-    complaintId,
-    workerId
-  ) => {
-    if (!workerId) {
-      return;
-    }
+  const assignWorker = async (complaintId, workerId) => {
+    if (!workerId) return;
 
     try {
       setAssigningId(complaintId);
@@ -377,9 +340,7 @@ function AdminDashboard() {
 
       await axios.patch(
         `${API_BASE_URL}/api/admin/complaints/${complaintId}/assign`,
-        {
-          worker_id: workerId,
-        },
+        { worker_id: workerId },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -388,85 +349,31 @@ function AdminDashboard() {
         }
       );
 
-      setSuccess(
-        "Complaint assigned successfully."
-      );
-
+      setSuccess("Worker successfully assigned to complaint.");
       await loadDashboard(token, true);
 
-      const refreshedComplaintResponse =
-        await axios.get(
-          `${API_BASE_URL}/api/complaints/${complaintId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-      if (
-        refreshedComplaintResponse.data?.success
-      ) {
-        const refreshedComplaint =
-          refreshedComplaintResponse.data.complaint;
-
-        setSelectedComplaint(
-          refreshedComplaint
-        );
-
-        if (
-          Array.isArray(
-            refreshedComplaintResponse.data
-              .status_history
-          )
-        ) {
-          setStatusHistory(
-            refreshedComplaintResponse.data
-              .status_history
-          );
-        } else {
-          await loadComplaintHistory(
-            complaintId
-          );
-        }
-      } else {
-        await loadComplaintHistory(
-          complaintId
-        );
+      // Refresh currently selected complaint details
+      const refreshed = await axios.get(`${API_BASE_URL}/api/complaints/${complaintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refreshed.data?.success) {
+        setSelectedComplaint(refreshed.data.complaint);
+        setDetailSelectedWorker(refreshed.data.complaint.assigned_worker_id || "");
+        setStatusHistory(refreshed.data.status_history || []);
       }
-    } catch (error) {
-      console.error(
-        "Assignment error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("user");
-
-        navigate("/login", { replace: true });
+    } catch (err) {
+      console.error("Assignment error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to assign worker."
-      );
+      setError(err.response?.data?.detail || "Failed to assign worker.");
     } finally {
       setAssigningId(null);
     }
   };
 
-  // ==========================================================
-  // VERIFY COMPLAINT
-  // ==========================================================
-
-  const verifyComplaint = async (
-    complaintId
-  ) => {
+  const verifyComplaint = async (complaintId) => {
     try {
       setVerifyingId(complaintId);
       setError("");
@@ -475,142 +382,134 @@ function AdminDashboard() {
       await axios.patch(
         `${API_BASE_URL}/api/admin/complaints/${complaintId}/verify`,
         {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setSuccess(
-        "Complaint verified successfully."
-      );
-
+      setSuccess("Complaint verified successfully.");
       await loadDashboard(token, true);
 
-      const refreshedComplaintResponse =
-        await axios.get(
-          `${API_BASE_URL}/api/complaints/${complaintId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-      if (
-        refreshedComplaintResponse.data?.success
-      ) {
-        setSelectedComplaint(
-          refreshedComplaintResponse.data.complaint
-        );
-
-        if (
-          Array.isArray(
-            refreshedComplaintResponse.data
-              .status_history
-          )
-        ) {
-          setStatusHistory(
-            refreshedComplaintResponse.data
-              .status_history
-          );
-        } else {
-          await loadComplaintHistory(
-            complaintId
-          );
-        }
+      const refreshed = await axios.get(`${API_BASE_URL}/api/complaints/${complaintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refreshed.data?.success) {
+        setSelectedComplaint(refreshed.data.complaint);
+        setStatusHistory(refreshed.data.status_history || []);
       }
-    } catch (error) {
-      console.error(
-        "Verification error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("user");
-
-        navigate("/login", { replace: true });
+    } catch (err) {
+      console.error("Verification error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to verify complaint."
-      );
+      setError(err.response?.data?.detail || "Failed to verify complaint.");
     } finally {
       setVerifyingId(null);
     }
   };
 
-  // ==========================================================
-  // ADMIN MANAGEMENT
-  // ==========================================================
+  const updateComplaintStatusAndWorker = async () => {
+    if (!selectedComplaint) return;
+    const complaintId = selectedComplaint.id;
 
-  const refreshManagement = async () => {
-    if (!token) {
-      return;
+    try {
+      setUpdatingStatusId(complaintId);
+      setError("");
+      setSuccess("");
+
+      // 1. Assign worker if changed
+      if (
+        detailSelectedWorker &&
+        detailSelectedWorker !== selectedComplaint.assigned_worker_id
+      ) {
+        await axios.patch(
+          `${API_BASE_URL}/api/admin/complaints/${complaintId}/assign`,
+          { worker_id: detailSelectedWorker },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+      }
+
+      // 2. Update status if changed or remarks provided
+      if (
+        (detailSelectedStatus && detailSelectedStatus !== selectedComplaint.status) ||
+        detailRemarks.trim()
+      ) {
+        await axios.patch(
+          `${API_BASE_URL}/api/complaints/${complaintId}/status`,
+          {
+            status: detailSelectedStatus || selectedComplaint.status,
+            remarks: detailRemarks.trim() || `Status updated by Admin to ${detailSelectedStatus}.`,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+      }
+
+      setSuccess("Complaint details updated successfully.");
+      setDetailRemarks("");
+      await loadDashboard(token, true);
+
+      const refreshed = await axios.get(`${API_BASE_URL}/api/complaints/${complaintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refreshed.data?.success) {
+        setSelectedComplaint(refreshed.data.complaint);
+        setStatusHistory(refreshed.data.status_history || []);
+      }
+    } catch (err) {
+      console.error("Update complaint error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        handleLogout();
+        return;
+      }
+      setError(err.response?.data?.detail || "Failed to update complaint details.");
+    } finally {
+      setUpdatingStatusId(null);
     }
+  };
 
+  // ==========================================================
+  // WORKER & USER MANAGEMENT OPERATIONS
+  // ==========================================================
+  const refreshManagement = async () => {
+    if (!token) return;
     try {
       setManagementLoading(true);
       setError("");
 
-      const headers = {
-        Authorization: `Bearer ${token}`,
-      };
+      const headers = { Authorization: `Bearer ${token}` };
+      const [workersRes, usersRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/admin/workers`, { headers }),
+        axios.get(`${API_BASE_URL}/api/admin/users`, { headers }),
+      ]);
 
-      const [workersResponse, usersResponse] =
-        await Promise.all([
-          axios.get(`${API_BASE_URL}/api/admin/workers`, {
-            headers,
-          }),
-          axios.get(`${API_BASE_URL}/api/admin/users`, {
-            headers,
-          }),
-        ]);
-
-      if (workersResponse.data?.success) {
-        setWorkers(
-          workersResponse.data.workers || []
-        );
+      if (workersRes.data?.success) {
+        setWorkers(workersRes.data.workers || []);
       }
-
-      if (usersResponse.data?.success) {
-        setManagedUsers(
-          usersResponse.data.users || []
-        );
+      if (usersRes.data?.success) {
+        setManagedUsers(usersRes.data.users || []);
       }
-    } catch (error) {
-      console.error(
-        "Management refresh error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      console.error("Management refresh error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
         handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to refresh management data."
-      );
+      setError(err.response?.data?.detail || "Failed to refresh management data.");
     } finally {
       setManagementLoading(false);
     }
   };
 
-  const toggleWorkerAvailability = async (
-    worker
-  ) => {
+  const toggleWorkerAvailability = async (worker) => {
     try {
       setManagementActionId(worker.id);
       setError("");
@@ -618,9 +517,7 @@ function AdminDashboard() {
 
       await axios.patch(
         `${API_BASE_URL}/api/admin/workers/${worker.id}/availability`,
-        {
-          is_available: !worker.is_available,
-        },
+        { is_available: !worker.is_available },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -631,29 +528,17 @@ function AdminDashboard() {
 
       setSuccess(
         worker.is_available
-          ? "Worker marked unavailable."
-          : "Worker marked available."
+          ? `Worker ${worker.worker_code} marked unavailable.`
+          : `Worker ${worker.worker_code} marked available.`
       );
-
       await refreshManagement();
-    } catch (error) {
-      console.error(
-        "Worker availability error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      console.error("Worker availability error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
         handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to update worker availability."
-      );
+      setError(err.response?.data?.detail || "Failed to update worker availability.");
     } finally {
       setManagementActionId(null);
     }
@@ -661,23 +546,15 @@ function AdminDashboard() {
 
   const toggleUserStatus = async (managedUser) => {
     if (managedUser.id === user?.id) {
-      setError(
-        "You cannot deactivate your own admin account."
-      );
+      setError("You cannot deactivate your own admin account.");
       return;
     }
 
-    const actionLabel = managedUser.is_active
-      ? "deactivate"
-      : "activate";
-
+    const actionLabel = managedUser.is_active ? "deactivate" : "activate";
     const confirmed = window.confirm(
       `Are you sure you want to ${actionLabel} ${managedUser.name || managedUser.email}?`
     );
-
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       setManagementActionId(managedUser.id);
@@ -686,9 +563,7 @@ function AdminDashboard() {
 
       await axios.patch(
         `${API_BASE_URL}/api/admin/users/${managedUser.id}/status`,
-        {
-          is_active: !managedUser.is_active,
-        },
+        { is_active: !managedUser.is_active },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -702,26 +577,14 @@ function AdminDashboard() {
           ? "User account deactivated."
           : "User account activated."
       );
-
       await refreshManagement();
-    } catch (error) {
-      console.error(
-        "User status error:",
-        error
-      );
-
-      if (
-        error.response?.status === 401 ||
-        error.response?.status === 403
-      ) {
+    } catch (err) {
+      console.error("User status error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
         handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to update user account status."
-      );
+      setError(err.response?.data?.detail || "Failed to update user status.");
     } finally {
       setManagementActionId(null);
     }
@@ -776,202 +639,52 @@ function AdminDashboard() {
         email: "",
         phone: "",
         password: "",
-          department: "",
+        department: "",
         specialization: "",
       });
 
       await refreshManagement();
       await loadDashboard(token, true);
-    } catch (error) {
-      console.error("Create worker error:", error);
-
-      if (error.response?.status === 401 || error.response?.status === 403) {
+    } catch (err) {
+      console.error("Create worker error:", err);
+      if (err.response?.status === 401 || err.response?.status === 403) {
         handleLogout();
         return;
       }
-
-      setError(
-        error.response?.data?.detail ||
-          "Failed to create worker account."
-      );
+      setError(err.response?.data?.detail || "Failed to create worker account.");
     } finally {
       setAddingWorker(false);
     }
   };
 
-  const closeAddWorkerModal = () => {
-    if (addingWorker) return;
-    setShowAddWorkerModal(false);
-    setWorkerForm({
-      name: "",
-      email: "",
-      phone: "",
-      password: "",
-      department: "",
-      specialization: "",
-    });
-  };
-
-  const managementStats = useMemo(() => {
-    const activeWorkers = workers.filter(
-      (worker) =>
-        worker.is_available &&
-        worker.users?.is_active !== false
-    ).length;
-
-    const unavailableWorkers =
-      workers.length - activeWorkers;
-
-    const activeUsers = managedUsers.filter(
-      (managedUser) => managedUser.is_active
-    ).length;
-
-    const inactiveUsers =
-      managedUsers.length - activeUsers;
-
-    const citizens = managedUsers.filter(
-      (managedUser) => managedUser.role === "citizen"
-    ).length;
-
-    const workerAccounts = managedUsers.filter(
-      (managedUser) => managedUser.role === "worker"
-    ).length;
-
-    const admins = managedUsers.filter(
-      (managedUser) => managedUser.role === "admin"
-    ).length;
-
-    return {
-      activeWorkers,
-      unavailableWorkers,
-      activeUsers,
-      inactiveUsers,
-      citizens,
-      workerAccounts,
-      admins,
-    };
-  }, [workers, managedUsers]);
-
-  const filteredManagementWorkers = useMemo(() => {
-    const query = managementSearch.trim().toLowerCase();
-
-    if (!query) {
-      return workers;
-    }
-
-    return workers.filter((worker) =>
-      [
-        worker.worker_code,
-        worker.department,
-        worker.specialization,
-        worker.users?.name,
-        worker.users?.email,
-      ]
-        .filter(Boolean)
-        .some((value) =>
-          String(value).toLowerCase().includes(query)
-        )
-    );
-  }, [workers, managementSearch]);
-
-  const filteredManagementUsers = useMemo(() => {
-    const query = managementSearch.trim().toLowerCase();
-
-    if (!query) {
-      return managedUsers;
-    }
-
-    return managedUsers.filter((managedUser) =>
-      [
-        managedUser.name,
-        managedUser.email,
-        managedUser.phone,
-        managedUser.role,
-      ]
-        .filter(Boolean)
-        .some((value) =>
-          String(value).toLowerCase().includes(query)
-        )
-    );
-  }, [managedUsers, managementSearch]);
-
   // ==========================================================
-  // STATS
+  // STATISTICAL CALCULATIONS
   // ==========================================================
-
   const stats = useMemo(() => {
     const total = complaints.length;
+    const submitted = complaints.filter((c) => c.status === "Submitted").length;
+    const verified = complaints.filter((c) => c.status === "Verified").length;
+    const assigned = complaints.filter((c) => c.status === "Assigned").length;
+    const inProgress = complaints.filter((c) => c.status === "In Progress").length;
+    const resolved = complaints.filter((c) => c.status === "Resolved").length;
+    const rejected = complaints.filter((c) => c.status === "Rejected").length;
+    const pending = submitted + verified + assigned; // Pending resolution / action
 
-    const submitted = complaints.filter(
-      (c) => c.status === "Submitted"
-    ).length;
+    const resolutionRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
 
-    const verified = complaints.filter(
-      (c) => c.status === "Verified"
-    ).length;
-
-    const assigned = complaints.filter(
-      (c) => c.status === "Assigned"
-    ).length;
-
-    const inProgress = complaints.filter(
-      (c) => c.status === "In Progress"
-    ).length;
-
-    const resolved = complaints.filter(
-      (c) => c.status === "Resolved"
-    ).length;
-
-    const rejected = complaints.filter(
-      (c) => c.status === "Rejected"
-    ).length;
-
-    const closed = resolved + rejected;
-
-    const resolutionRate =
-      total > 0
-        ? Math.round(
-            (resolved / total) * 100
-          )
-        : 0;
-
-    const resolutionTimes =
-      complaints
-        .filter(
-          (complaint) =>
-            complaint.created_at &&
-            complaint.resolved_at
-        )
-        .map((complaint) => {
-          const created = new Date(
-            complaint.created_at
-          ).getTime();
-
-          const resolvedAt = new Date(
-            complaint.resolved_at
-          ).getTime();
-
-          if (
-            Number.isNaN(created) ||
-            Number.isNaN(resolvedAt) ||
-            resolvedAt < created
-          ) {
-            return null;
-          }
-
-          return (
-            (resolvedAt - created) /
-            (1000 * 60 * 60)
-          );
-        })
-        .filter((value) => value !== null);
+    const resolutionTimes = complaints
+      .filter((c) => c.created_at && c.resolved_at)
+      .map((c) => {
+        const created = new Date(c.created_at).getTime();
+        const resolvedAt = new Date(c.resolved_at).getTime();
+        if (Number.isNaN(created) || Number.isNaN(resolvedAt) || resolvedAt < created) return null;
+        return (resolvedAt - created) / (1000 * 60 * 60);
+      })
+      .filter((val) => val !== null);
 
     const averageResolutionHours =
       resolutionTimes.length > 0
-        ? resolutionTimes.reduce(
-            (sum, value) => sum + value,
-            0
-          ) / resolutionTimes.length
+        ? resolutionTimes.reduce((sum, v) => sum + v, 0) / resolutionTimes.length
         : 0;
 
     return {
@@ -982,2772 +695,1994 @@ function AdminDashboard() {
       inProgress,
       resolved,
       rejected,
-      closed,
+      pending,
       resolutionRate,
       averageResolutionHours,
-      workers: workers.length,
+      workersCount: workers.length,
     };
   }, [complaints, workers]);
 
-  // ==========================================================
-  // STATUS CHART DATA
-  // ==========================================================
+  // Categories list & Chart Data
+  const categoriesList = useMemo(() => {
+    const set = new Set();
+    complaints.forEach((c) => {
+      if (c.categories?.name) set.add(c.categories.name);
+    });
+    return Array.from(set);
+  }, [complaints]);
+
+  const categoryChartData = useMemo(() => {
+    const map = {};
+    complaints.forEach((c) => {
+      const cat = c.categories?.name || "General";
+      map[cat] = (map[cat] || 0) + 1;
+    });
+
+    const total = complaints.length || 1;
+    return Object.entries(map)
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: Math.round((count / total) * 100),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [complaints]);
 
   const statusChartData = useMemo(() => {
     return [
-      {
-        name: "Submitted",
-        value: stats.submitted,
-      },
-      {
-        name: "Verified",
-        value: stats.verified,
-      },
-      {
-        name: "Assigned",
-        value: stats.assigned,
-      },
-      {
-        name: "In Progress",
-        value: stats.inProgress,
-      },
-      {
-        name: "Resolved",
-        value: stats.resolved,
-      },
-      {
-        name: "Rejected",
-        value: stats.rejected,
-      },
+      { name: "Pending", value: stats.pending, color: "#ef4444" },
+      { name: "In Progress", value: stats.inProgress, color: "#f59e0b" },
+      { name: "Resolved", value: stats.resolved, color: "#10b981" },
     ].filter((item) => item.value > 0);
   }, [stats]);
 
-  // ==========================================================
-  // CATEGORY CHART DATA
-  // ==========================================================
-
-  const categoryChartData = useMemo(() => {
-    const categoryMap = {};
-
-    complaints.forEach((complaint) => {
-      const category =
-        complaint.categories?.name ||
-        "Uncategorized";
-
-      categoryMap[category] =
-        (categoryMap[category] || 0) + 1;
-    });
-
-    return Object.entries(categoryMap)
-      .map(([name, complaints]) => ({
-        name,
-        complaints,
-      }))
-      .sort(
-        (a, b) =>
-          b.complaints - a.complaints
-      );
-  }, [complaints]);
-
-  // ==========================================================
-  // TIME CHART DATA
-  // ==========================================================
-
   const timeChartData = useMemo(() => {
-    const dateMap = {};
-
-    complaints.forEach((complaint) => {
-      if (!complaint.created_at) {
-        return;
-      }
-
-      const date = new Date(
-        complaint.created_at
-      );
-
-      if (Number.isNaN(date.getTime())) {
-        return;
-      }
-
-      const key = date.toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
+    // 7-day trend
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    complaints.forEach((c) => {
+      if (c.created_at) {
+        const d = new Date(c.created_at);
+        if (!Number.isNaN(d.getTime())) {
+          counts[d.getDay()] += 1;
         }
-      );
-
-      dateMap[key] =
-        (dateMap[key] || 0) + 1;
+      }
     });
 
-    return Object.entries(dateMap)
-      .map(([date, complaints]) => ({
-        date,
-        complaints,
-      }))
-      .slice(-14);
+    return days.map((day, idx) => ({
+      day,
+      complaints: counts[idx],
+    }));
   }, [complaints]);
 
-  // ==========================================================
-  // WORKER WORKLOAD DATA
-  // ==========================================================
-
-  const workerChartData = useMemo(() => {
+  const workerWorkloadData = useMemo(() => {
     return workers
-      .map((worker) => {
-        const workerId = worker.id;
-
-        const assignedCount =
-          complaints.filter(
-            (complaint) =>
-              complaint.assigned_worker_id ===
-              workerId
-          ).length;
-
-        const resolvedCount =
-          complaints.filter(
-            (complaint) =>
-              complaint.assigned_worker_id ===
-                workerId &&
-              complaint.status === "Resolved"
-          ).length;
-
+      .map((w) => {
+        const assigned = complaints.filter((c) => c.assigned_worker_id === w.id).length;
+        const resolved = complaints.filter(
+          (c) => c.assigned_worker_id === w.id && c.status === "Resolved"
+        ).length;
         return {
-          name:
-            worker.users?.name ||
-            worker.worker_code ||
-            "Worker",
-          assigned: assignedCount,
-          resolved: resolvedCount,
+          name: w.users?.name || w.worker_code,
+          assigned,
+          resolved,
         };
       })
-      .sort(
-        (a, b) =>
-          b.assigned - a.assigned
-      );
+      .sort((a, b) => b.assigned - a.assigned);
   }, [workers, complaints]);
 
-  // ==========================================================
-  // ADVANCED ANALYTICS
-  // ==========================================================
-
-  const advancedAnalytics = useMemo(() => {
-    const now = Date.now();
-    const periodDays = analyticsPeriod === "all"
-      ? null
-      : Number(analyticsPeriod);
-
-    const periodComplaints = complaints.filter((complaint) => {
-      if (!periodDays || !complaint.created_at) {
-        return true;
+  // Filtered complaints list
+  const filteredComplaints = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return complaints.filter((item) => {
+      // Status filter
+      if (statusFilter !== "All") {
+        if (statusFilter === "Pending" && !["Submitted", "Verified", "Assigned"].includes(item.status)) return false;
+        if (statusFilter === "In Progress" && item.status !== "In Progress") return false;
+        if (statusFilter === "Resolved" && item.status !== "Resolved") return false;
+        if (statusFilter === "Rejected" && item.status !== "Rejected") return false;
+        if (!["Pending", "In Progress", "Resolved", "Rejected"].includes(statusFilter) && item.status !== statusFilter) return false;
       }
 
-      const created = new Date(complaint.created_at).getTime();
-
-      if (Number.isNaN(created)) {
+      // Category filter
+      if (categoryFilter !== "All" && item.categories?.name !== categoryFilter) {
         return false;
       }
 
-      return now - created <= periodDays * 24 * 60 * 60 * 1000;
-    });
-
-    const priorityMap = {};
-    periodComplaints.forEach((complaint) => {
-      const priority = complaint.priority || "Not specified";
-      priorityMap[priority] = (priorityMap[priority] || 0) + 1;
-    });
-
-    const priorityData = Object.entries(priorityMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-
-    const verifiedCount = periodComplaints.filter(
-      (complaint) => complaint.verified_at
-    ).length;
-
-    const verificationRate =
-      periodComplaints.length > 0
-        ? Math.round((verifiedCount / periodComplaints.length) * 100)
-        : 0;
-
-    const resolvedCount = periodComplaints.filter(
-      (complaint) => complaint.status === "Resolved"
-    ).length;
-
-    const rejectedCount = periodComplaints.filter(
-      (complaint) => complaint.status === "Rejected"
-    ).length;
-
-    const activeCount = periodComplaints.filter(
-      (complaint) =>
-        !["Resolved", "Rejected"].includes(complaint.status)
-    ).length;
-
-    const agingBuckets = {
-      "0–2 days": 0,
-      "3–7 days": 0,
-      "8–14 days": 0,
-      "15+ days": 0,
-    };
-
-    periodComplaints.forEach((complaint) => {
-      if (["Resolved", "Rejected"].includes(complaint.status)) {
-        return;
-      }
-
-      if (!complaint.created_at) {
-        return;
-      }
-
-      const created = new Date(complaint.created_at).getTime();
-
-      if (Number.isNaN(created)) {
-        return;
-      }
-
-      const ageDays = Math.max(
-        0,
-        (now - created) / (1000 * 60 * 60 * 24)
-      );
-
-      if (ageDays <= 2) {
-        agingBuckets["0–2 days"] += 1;
-      } else if (ageDays <= 7) {
-        agingBuckets["3–7 days"] += 1;
-      } else if (ageDays <= 14) {
-        agingBuckets["8–14 days"] += 1;
-      } else {
-        agingBuckets["15+ days"] += 1;
-      }
-    });
-
-    const agingData = Object.entries(agingBuckets).map(
-      ([name, complaints]) => ({
-        name,
-        complaints,
-      })
-    );
-
-    const monthlyMap = {};
-    periodComplaints.forEach((complaint) => {
-      if (!complaint.created_at) {
-        return;
-      }
-
-      const date = new Date(complaint.created_at);
-
-      if (Number.isNaN(date.getTime())) {
-        return;
-      }
-
-      const key = date.toLocaleDateString("en-IN", {
-        month: "short",
-        year: "numeric",
-      });
-
-      monthlyMap[key] = (monthlyMap[key] || 0) + 1;
-    });
-
-    const monthlyTrendData = Object.entries(monthlyMap).map(
-      ([month, complaints]) => ({
-        month,
-        complaints,
-      })
-    );
-
-    const averageAgeHours =
-      activeCount > 0
-        ? periodComplaints
-            .filter(
-              (complaint) =>
-                complaint.status !== "Resolved" &&
-                complaint.status !== "Rejected" &&
-                complaint.created_at
-            )
-            .map((complaint) => {
-              const created = new Date(
-                complaint.created_at
-              ).getTime();
-
-              if (Number.isNaN(created)) {
-                return null;
-              }
-
-              return Math.max(
-                0,
-                (now - created) / (1000 * 60 * 60)
-              );
-            })
-            .filter((value) => value !== null)
-            .reduce((sum, value) => sum + value, 0) /
-          Math.max(
-            1,
-            periodComplaints.filter(
-              (complaint) =>
-                complaint.status !== "Resolved" &&
-                complaint.status !== "Rejected" &&
-                complaint.created_at
-            ).length
-          )
-        : 0;
-
-    return {
-      periodComplaints,
-      priorityData,
-      verificationRate,
-      verifiedCount,
-      resolvedCount,
-      rejectedCount,
-      activeCount,
-      agingData,
-      monthlyTrendData,
-      averageAgeHours,
-    };
-  }, [complaints, analyticsPeriod]);
-
-  const formatAge = (hours) => {
-    if (!hours || hours <= 0) {
-      return "N/A";
-    }
-
-    if (hours < 24) {
-      return `${hours.toFixed(1)} hrs`;
-    }
-
-    return `${(hours / 24).toFixed(1)} days`;
-  };
-
-  // ==========================================================
-  // FILTER
-  // ==========================================================
-
-  const filteredComplaints = useMemo(() => {
-    const query = search
-      .trim()
-      .toLowerCase();
-
-    return complaints.filter(
-      (complaint) => {
-        const matchesStatus =
-          statusFilter === "All" ||
-          complaint.status ===
-            statusFilter;
-
-        const matchesSearch =
-          !query ||
-          complaint.title
-            ?.toLowerCase()
-            .includes(query) ||
-          complaint.description
-            ?.toLowerCase()
-            .includes(query) ||
-          complaint.complaint_code
-            ?.toLowerCase()
-            .includes(query) ||
-          complaint.categories?.name
-            ?.toLowerCase()
-            .includes(query);
-
+      // Search keyword
+      if (q) {
+        const title = (item.title || "").toLowerCase();
+        const code = (item.complaint_code || "").toLowerCase();
+        const desc = (item.description || "").toLowerCase();
+        const address = (item.address || "").toLowerCase();
+        const cat = (item.categories?.name || "").toLowerCase();
+        const citizen = (item.citizen_id || "").toLowerCase();
         return (
-          matchesStatus &&
-          matchesSearch
+          title.includes(q) ||
+          code.includes(q) ||
+          desc.includes(q) ||
+          address.includes(q) ||
+          cat.includes(q) ||
+          citizen.includes(q)
         );
       }
-    );
-  }, [
-    complaints,
-    search,
-    statusFilter,
-  ]);
 
-  // ==========================================================
-  // MAP DATA
-  // ==========================================================
+      return true;
+    });
+  }, [complaints, search, statusFilter, categoryFilter]);
 
+  // Map complaints with coordinates
   const mapComplaints = useMemo(() => {
     return filteredComplaints.filter(
-      (complaint) =>
-        complaint.latitude != null &&
-        complaint.longitude != null &&
-        !Number.isNaN(Number(complaint.latitude)) &&
-        !Number.isNaN(Number(complaint.longitude))
+      (c) =>
+        c.latitude != null &&
+        c.longitude != null &&
+        !Number.isNaN(Number(c.latitude)) &&
+        !Number.isNaN(Number(c.longitude))
     );
   }, [filteredComplaints]);
 
-  // ==========================================================
-  // SMART HEATMAP DATA
-  // ==========================================================
-
-  const heatmapData = useMemo(() => {
-    if (mapComplaints.length === 0) {
-      return [];
-    }
-
-    const toRadians = (value) => (value * Math.PI) / 180;
-
-    const distanceKm = (lat1, lon1, lat2, lon2) => {
-      const earthRadiusKm = 6371;
-      const dLat = toRadians(lat2 - lat1);
-      const dLon = toRadians(lon2 - lon1);
-
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRadians(lat1)) *
-          Math.cos(toRadians(lat2)) *
-          Math.sin(dLon / 2) ** 2;
-
-      return (
-        earthRadiusKm *
-        2 *
-        Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      );
-    };
-
-    const getPriorityWeight = (priority) => {
-      switch (String(priority || "").toLowerCase()) {
-        case "critical":
-          return 4;
-        case "high":
-          return 3;
-        case "medium":
-          return 2;
-        case "low":
-          return 1;
-        default:
-          return 1;
-      }
-    };
-
-    const points = mapComplaints.map((complaint) => ({
-      complaint,
-      latitude: Number(complaint.latitude),
-      longitude: Number(complaint.longitude),
-      weight: getPriorityWeight(complaint.priority),
-    }));
-
-    const rawPoints = points.map((point) => {
-      let nearbyCount = 0;
-      let densityWeight = 0;
-
-      points.forEach((other) => {
-        const distance = distanceKm(
-          point.latitude,
-          point.longitude,
-          other.latitude,
-          other.longitude
-        );
-
-        // 1 km neighborhood radius.
-        if (distance <= 1) {
-          nearbyCount += 1;
-          densityWeight += other.weight;
-        }
-      });
-
-      return {
-        ...point,
-        nearbyCount,
-        densityWeight,
-      };
-    });
-
-    const maxDensity = Math.max(
-      1,
-      ...rawPoints.map((point) => point.densityWeight)
+  // Filtered workers list
+  const filteredWorkers = useMemo(() => {
+    const q = managementSearch.trim().toLowerCase();
+    if (!q) return workers;
+    return workers.filter((w) =>
+      [w.worker_code, w.department, w.specialization, w.users?.name, w.users?.email]
+        .filter(Boolean)
+        .some((val) => String(val).toLowerCase().includes(q))
     );
+  }, [workers, managementSearch]);
 
-    return rawPoints.map((point) => ({
-      ...point,
-      intensity: point.densityWeight / maxDensity,
-    }));
-  }, [mapComplaints]);
+  // Filtered citizens/users list
+  const filteredUsers = useMemo(() => {
+    const q = managementSearch.trim().toLowerCase();
+    if (!q) return managedUsers;
+    return managedUsers.filter((u) =>
+      [u.name, u.email, u.phone, u.role]
+        .filter(Boolean)
+        .some((val) => String(val).toLowerCase().includes(q))
+    );
+  }, [managedUsers, managementSearch]);
 
-  const getHeatmapColor = (intensity) => {
-    if (intensity >= 0.75) {
-      return "#ef4444";
-    }
-
-    if (intensity >= 0.5) {
-      return "#f97316";
-    }
-
-    if (intensity >= 0.25) {
-      return "#eab308";
-    }
-
-    return "#3b82f6";
-  };
-
-  const getHeatmapRadius = (intensity) => {
-    return 14 + Math.round(intensity * 22);
-  };
-
-  // ==========================================================
-  // HELPERS
-  // ==========================================================
-
-  const getMapStatusColor = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "#6b7280";
-      case "Verified":
-        return "#8b5cf6";
-      case "Assigned":
-        return "#eab308";
-      case "In Progress":
-        return "#3b82f6";
-      case "Resolved":
-        return "#22c55e";
-      case "Rejected":
-        return "#ef4444";
-      default:
-        return "#64748b";
-    }
-  };
-
-  const getStatusClass = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "bg-gray-100 text-gray-700";
-
-      case "Verified":
-        return "bg-purple-100 text-purple-700";
-
-      case "Assigned":
-        return "bg-yellow-100 text-yellow-700";
-
-      case "In Progress":
-        return "bg-blue-100 text-blue-700";
-
-      case "Resolved":
-        return "bg-green-100 text-green-700";
-
-      case "Rejected":
-        return "bg-red-100 text-red-700";
-
-      default:
-        return "bg-gray-100 text-gray-700";
-    }
-  };
-
-  const getStatusDotClass = (status) => {
-    switch (status) {
-      case "Submitted":
-        return "bg-gray-500";
-
-      case "Verified":
-        return "bg-purple-500";
-
-      case "Assigned":
-        return "bg-yellow-500";
-
-      case "In Progress":
-        return "bg-blue-500";
-
-      case "Resolved":
-        return "bg-green-500";
-
-      case "Rejected":
-        return "bg-red-500";
-
-      default:
-        return "bg-gray-400";
-    }
-  };
-
-  const formatDate = (date) => {
-    if (!date) {
-      return "N/A";
-    }
-
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "N/A";
     try {
-      return new Date(
-        date
-      ).toLocaleString("en-IN", {
-        dateStyle: "medium",
-        timeStyle: "short",
+      return new Date(dateStr).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
       });
     } catch {
-      return date;
+      return dateStr;
     }
   };
 
-  const getWorkerName = (complaint) => {
-    if (complaint.workers?.users?.name) {
-      return complaint.workers.users.name;
+  const formatDateTime = (dateStr) => {
+    if (!dateStr) return "N/A";
+    try {
+      return new Date(dateStr).toLocaleString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return dateStr;
     }
-
-    if (complaint.workers?.worker_code) {
-      return complaint.workers.worker_code;
-    }
-
-    return "Not assigned";
   };
 
-  const getHistoryActor = (
-    historyItem
-  ) => {
-    if (historyItem.changed_by) {
-      return historyItem.changed_by;
-    }
-
-    return "System";
+  const getWorkerDisplayName = (complaint) => {
+    if (complaint.workers?.users?.name) return complaint.workers.users.name;
+    if (complaint.workers?.worker_code) return complaint.workers.worker_code;
+    return "Unassigned";
   };
 
-  const formatAverageResolutionTime =
-    (hours) => {
-      if (!hours || hours <= 0) {
-        return "N/A";
-      }
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case "Submitted":
+      case "Pending":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+            Pending
+          </span>
+        );
+      case "Verified":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+            Verified
+          </span>
+        );
+      case "Assigned":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+            Assigned
+          </span>
+        );
+      case "In Progress":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            In Progress
+          </span>
+        );
+      case "Resolved":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Resolved
+          </span>
+        );
+      case "Rejected":
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+            Rejected
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            {status}
+          </span>
+        );
+    }
+  };
 
-      if (hours < 24) {
-        return `${hours.toFixed(1)} hrs`;
-      }
+  const getCategoryColor = (index) => {
+    const colors = ["#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#06b6d4", "#ec4899", "#64748b"];
+    return colors[index % colors.length];
+  };
 
-      return `${(hours / 24).toFixed(
-        1
-      )} days`;
-    };
-
-  const PIE_COLORS = [
-    "#3b82f6",
-    "#8b5cf6",
-    "#eab308",
-    "#f97316",
-    "#22c55e",
-    "#ef4444",
+  const navMenuItems = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "complaints", label: "Complaints", icon: ClipboardList },
+    { id: "map", label: "Map View", icon: MapPin },
+    { id: "users", label: "Users", icon: Users },
+    { id: "workers", label: "Workers", icon: Wrench },
+    { id: "departments", label: "Departments", icon: Building2 },
+    { id: "analytics", label: "Analytics", icon: BarChart3 },
+    { id: "reports", label: "Reports", icon: FileText },
+    { id: "rewards", label: "Rewards", icon: Award },
+    { id: "announcements", label: "Announcements", icon: Megaphone },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
-
-
-  const navigationItems = [
-    {
-      id: "overview",
-      label: "Overview",
-      icon: LayoutDashboard,
-      target: "overview-section",
-    },
-    {
-      id: "complaints",
-      label: "Complaints",
-      icon: ClipboardList,
-      target: "complaints-section",
-    },
-    {
-      id: "management",
-      label: "Management",
-      icon: UsersRound,
-      target: "management-section",
-    },
-    {
-      id: "analytics",
-      label: "Analytics",
-      icon: BarChart3,
-      target: "analytics-section",
-    },
-    {
-      id: "map",
-      label: "Complaint Map",
-      icon: Map,
-      target: "map-section",
-    },
-  ];
-
-  const handleNavigation = (item) => {
-    const target = document.getElementById(item.target);
-
-    if (!target) {
-      console.warn(`Navigation target not found: ${item.target}`);
-      return;
-    }
-
-    setActiveNav(item.id);
-
-    const headerOffset = window.innerWidth >= 1024 ? 88 : 136;
-    const targetTop =
-      target.getBoundingClientRect().top +
-      window.pageYOffset -
-      headerOffset;
-
-    window.scrollTo({
-      top: Math.max(0, targetTop),
-      behavior: "smooth",
-    });
-  };
-
-  useEffect(() => {
-    const sections = navigationItems
-      .map((item) => ({
-        id: item.id,
-        element: document.getElementById(item.target),
-      }))
-      .filter((item) => item.element);
-
-    if (sections.length === 0) return undefined;
-
-    const updateActiveNavigation = () => {
-      const scrollPosition = window.scrollY + 180;
-      let current = sections[0].id;
-
-      for (const section of sections) {
-        if (section.element.offsetTop <= scrollPosition) {
-          current = section.id;
-        }
-      }
-
-      setActiveNav(current);
-    };
-
-    updateActiveNavigation();
-    window.addEventListener("scroll", updateActiveNavigation, { passive: true });
-    window.addEventListener("resize", updateActiveNavigation);
-
-    return () => {
-      window.removeEventListener("scroll", updateActiveNavigation);
-      window.removeEventListener("resize", updateActiveNavigation);
-    };
-  }, []);
-
-  // ==========================================================
-  // LOADING
-  // ==========================================================
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-600 mb-3" />
-
-          <p className="text-gray-600">
-            Loading admin dashboard...
-          </p>
+          <div className="w-14 h-14 mx-auto mb-4 relative">
+            <RefreshCw className="w-12 h-12 text-blue-500 animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-blue-400" />
+            </div>
+          </div>
+          <h2 className="text-lg font-bold text-white">Loading Smart City Admin...</h2>
+          <p className="text-sm text-slate-400 mt-1">Connecting to municipal control console</p>
         </div>
       </div>
     );
   }
 
-  // ==========================================================
-  // UI
-  // ==========================================================
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
-
-      {/* SMARTCITY ADMIN SIDEBAR */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 flex-col bg-slate-950 text-white shadow-2xl">
-        <div className="h-20 px-6 flex items-center border-b border-white/10">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-900/30">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <div className="ml-3">
-            <p className="font-bold">SmartCity</p>
-            <p className="text-xs text-slate-400">Admin Console</p>
-          </div>
-        </div>
-        <nav className="p-4 space-y-1.5">
-          <p className="px-3 mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Workspace
-          </p>
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeNav === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleNavigation(item)}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition ${
-                  active
-                    ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30"
-                    : "text-slate-300 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="flex-1 text-left">{item.label}</span>
-                {active && <ChevronRight className="w-4 h-4" />}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="mt-auto p-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs text-slate-400">Signed in as</p>
-            <p className="mt-1 text-sm font-semibold truncate">{user?.name || "Administrator"}</p>
-            <p className="text-xs text-slate-500 truncate">{user?.email || ""}</p>
-          </div>
-        </div>
-      </aside>
-
-      <div className="lg:hidden bg-slate-950 text-white sticky top-0 z-40 shadow-lg">
-        <div className="px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
-            <ShieldCheck className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="font-bold text-sm">SmartCity</p>
-            <p className="text-[10px] text-slate-400">Admin Console</p>
-          </div>
-        </div>
-        <div className="px-3 pb-3 flex gap-2 overflow-x-auto">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleNavigation(item)}
-                className={`shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${
-                  activeNav === item.id
-                    ? "bg-blue-600 text-white"
-                    : "bg-white/10 text-slate-300"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <main className="lg:ml-64 min-h-screen">
-      <header className="bg-white/95 backdrop-blur border-b sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-7 h-7 text-blue-600" />
-
-                <h1 className="text-2xl font-bold text-gray-900">
-                  Admin Dashboard
-                </h1>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      <div className="flex-1 flex overflow-hidden">
+        {/* ============================================================ */}
+        {/* 1. DARK NAVY SIDEBAR (Matches Reference Screen 2 & 3) */}
+        {/* ============================================================ */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#0e1726] text-white flex flex-col transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
+            mobileMenuOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+          }`}
+        >
+          {/* Logo Brand Header */}
+          <div className="p-5 flex items-center justify-between border-b border-white/10">
+            <div
+              onClick={() => {
+                setActiveNav("dashboard");
+                setMobileMenuOpen(false);
+              }}
+              className="flex items-center gap-3 cursor-pointer select-none"
+            >
+              <img
+                src={smartCityLogo}
+                alt="Smart City Logo"
+                className="h-9 w-auto object-contain shrink-0"
+              />
+              <div className="leading-tight">
+                <span className="font-extrabold text-sm tracking-tight text-white uppercase block">
+                  SMART CITY
+                </span>
+                <span className="text-[11px] font-semibold text-blue-400 tracking-wide block">
+                  Complaint Portal
+                </span>
               </div>
-
-              <p className="text-sm text-gray-500 mt-1">
-                Smart City Complaint Portal
-              </p>
             </div>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
 
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-3 bg-gray-50 border rounded-xl px-4 py-2">
-                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center">
-                  <UserRound className="w-5 h-5 text-blue-600" />
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {user?.name ||
-                      "Admin"}
-                  </p>
-
-                  <p className="text-xs text-gray-500">
-                    Administrator
-                  </p>
-                </div>
-              </div>
-
-              <NotificationBell />
-
-              <button
-                onClick={() =>
-                  loadDashboard(
-                    token,
-                    true
-                  )
-                }
-                disabled={refreshing}
-                className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${
-                    refreshing
-                      ? "animate-spin"
-                      : ""
+          {/* Navigation Items List */}
+          <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
+            {navMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeNav === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveNav(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+                    isActive
+                      ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
+                      : "text-slate-300 hover:bg-white/5 hover:text-white"
                   }`}
-                />
+                >
+                  <Icon className="w-4.5 h-4.5 shrink-0" />
+                  <span className="flex-1 text-left">{item.label}</span>
+                  {item.id === "complaints" && stats.pending > 0 && (
+                    <span className="bg-rose-500/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {stats.pending}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
 
-                Refresh
-              </button>
-
+          {/* Sidebar Footer User Info */}
+          <div className="p-4 border-t border-white/10 bg-black/10">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0">
+                A
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-white truncate">
+                  {user?.name || "Administrator"}
+                </p>
+                <p className="text-[11px] text-slate-400 truncate">Municipal Control</p>
+              </div>
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition"
+                title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />
-
-                Logout
               </button>
             </div>
           </div>
-        </div>
-      </header>
+        </aside>
 
-      <div id="overview-section" className="max-w-7xl mx-auto px-4 sm:px-6 py-6 scroll-mt-28">
-        {/* ====================================================
-            ALERTS
-        ==================================================== */}
-
-        {error && (
-          <div className="mb-5 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
-            <AlertCircle className="w-5 h-5 mt-0.5" />
-
-            <div>
-              <p className="font-semibold">
-                Something went wrong
-              </p>
-
-              <p className="text-sm mt-1">
-                {error}
-              </p>
-            </div>
-          </div>
+        {/* Backdrop for mobile sidebar */}
+        {mobileMenuOpen && (
+          <div
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 lg:hidden"
+          />
         )}
 
-        {success && (
-          <div className="mb-5 flex items-start gap-3 bg-green-50 border border-green-200 text-green-700 rounded-xl p-4">
-            <CheckCircle2 className="w-5 h-5 mt-0.5" />
+        {/* ============================================================ */}
+        {/* 2. MAIN CONTENT AREA */}
+        {/* ============================================================ */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+          {/* TOP HEADER (Matches Screen 2: Clean White with Search & Admin Avatar) */}
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-2xs">
+            <div className="px-3 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
+              <div className="flex items-center gap-2 sm:gap-3 flex-1 max-w-lg min-w-0">
+                <button
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 shrink-0"
+                  aria-label="Toggle Navigation"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
 
-            <div>
-              <p className="font-semibold">
-                Success
-              </p>
-
-              <p className="text-sm mt-1">
-                {success}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ====================================================
-            TOP STATS
-        ==================================================== */}
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-7">
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              Total
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.total}
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              Submitted
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.submitted}
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              Assigned
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.assigned}
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              In Progress
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.inProgress}
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              Resolved
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.resolved}
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <p className="text-sm text-gray-500">
-              Workers
-            </p>
-
-            <p className="text-3xl font-bold mt-2">
-              {stats.workers}
-            </p>
-          </div>
-        </div>
-
-        {/* ====================================================
-            ANALYTICS SUMMARY
-        ==================================================== */}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-7">
-          <div className="bg-white border rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">
-                  Resolution Rate
-                </p>
-
-                <p className="text-3xl font-bold text-green-600 mt-2">
-                  {stats.resolutionRate}%
-                </p>
-              </div>
-
-              <div className="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-              </div>
-            </div>
-
-            <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-green-500 rounded-full transition-all"
-                style={{
-                  width: `${stats.resolutionRate}%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">
-                  Average Resolution
-                </p>
-
-                <p className="text-3xl font-bold text-blue-600 mt-2">
-                  {formatAverageResolutionTime(
-                    stats.averageResolutionHours
+                {/* Global Search Bar */}
+                <div className="relative w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search complaints, users..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 sm:py-2 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                  />
+                  {search && (
+                    <button
+                      onClick={() => setSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   )}
-                </p>
+                </div>
               </div>
 
-              <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center">
-                <Clock3 className="w-5 h-5 text-blue-600" />
+              {/* Right: Notifications + Admin Profile Dropdown */}
+              <div className="flex items-center gap-3">
+                <NotificationBell />
+
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-slate-100 transition border border-slate-200"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-[#0e1726] text-white font-bold text-xs flex items-center justify-center">
+                      A
+                    </div>
+                    <span className="hidden sm:block text-xs font-bold text-slate-800">
+                      Admin
+                    </span>
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                        userMenuOpen ? "rotate-90" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-60 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="p-3 border-b border-slate-100 bg-slate-50/50 rounded-xl mb-1">
+                        <p className="font-bold text-xs text-slate-900">{user?.name || "Administrator"}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{user?.email}</p>
+                        <span className="mt-1.5 inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800">
+                          Super Administrator
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          loadDashboard(token, true);
+                          setUserMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg"
+                      >
+                        <RefreshCw className="w-4 h-4 text-slate-500" />
+                        Refresh Data
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setActiveNav("settings");
+                          setUserMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg"
+                      >
+                        <Settings className="w-4 h-4 text-slate-500" />
+                        System Settings
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1" />
+
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+          </header>
 
-            <p className="text-xs text-gray-500 mt-3">
-              Based on complaints with a recorded
-              resolution time.
-            </p>
-          </div>
-
-          <div className="bg-white border rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">
-                  Closed Complaints
-                </p>
-
-                <p className="text-3xl font-bold text-purple-600 mt-2">
-                  {stats.closed}
-                </p>
-              </div>
-
-              <div className="w-11 h-11 rounded-xl bg-purple-100 flex items-center justify-center">
-                <BarChart3 className="w-5 h-5 text-purple-600" />
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-3">
-              Resolved + rejected complaints.
-            </p>
-          </div>
-        </div>
-
-        {/* ====================================================
-            ADVANCED ANALYTICS
-        ==================================================== */}
-
-        {/* ======================================================
-            ADMIN MANAGEMENT
-        ====================================================== */}
-
-        <section id="management-section" className="mb-7 scroll-mt-28">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-blue-600" />
-
-                <h2 className="text-xl font-bold text-gray-900">
-                  Admin Management
-                </h2>
-              </div>
-
-              <p className="text-sm text-gray-500 mt-1">
-                Manage worker availability and user account access.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-
-                <input
-                  value={managementSearch}
-                  onChange={(event) =>
-                    setManagementSearch(event.target.value)
-                  }
-                  placeholder={
-                    managementTab === "workers"
-                      ? "Search workers..."
-                      : "Search users..."
-                  }
-                  className="w-full sm:w-64 pl-9 pr-3 py-2.5 border rounded-xl bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setSuccess("");
-                  setShowAddWorkerModal(true);
-                }}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
-              >
-                <UserPlus className="w-4 h-4" />
-                Add Worker
-              </button>
-
-              <button
-                type="button"
-                onClick={refreshManagement}
-                disabled={managementLoading}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border rounded-xl bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${
-                    managementLoading
-                      ? "animate-spin"
-                      : ""
-                  }`}
-                />
-                Refresh
-              </button>
-            </div>
-          </div>
-
-          {/* Management stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Workers
-              </p>
-              <p className="text-xl font-bold text-gray-900 mt-1">
-                {workers.length}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Available
-              </p>
-              <p className="text-xl font-bold text-green-600 mt-1">
-                {managementStats.activeWorkers}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Unavailable
-              </p>
-              <p className="text-xl font-bold text-orange-600 mt-1">
-                {managementStats.unavailableWorkers}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Citizens
-              </p>
-              <p className="text-xl font-bold text-blue-600 mt-1">
-                {managementStats.citizens}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Workers Accounts
-              </p>
-              <p className="text-xl font-bold text-purple-600 mt-1">
-                {managementStats.workerAccounts}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Active Users
-              </p>
-              <p className="text-xl font-bold text-green-600 mt-1">
-                {managementStats.activeUsers}
-              </p>
-            </div>
-
-            <div className="bg-white border rounded-xl p-3">
-              <p className="text-xs text-gray-500">
-                Inactive
-              </p>
-              <p className="text-xl font-bold text-red-600 mt-1">
-                {managementStats.inactiveUsers}
-              </p>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-            <div className="border-b px-4 pt-4">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManagementTab("workers");
-                    setManagementSearch("");
-                  }}
-                  className={`px-4 py-2.5 rounded-t-lg text-sm font-semibold ${
-                    managementTab === "workers"
-                      ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600"
-                      : "text-gray-500 hover:text-gray-800"
-                  }`}
-                >
-                  Worker Management
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManagementTab("users");
-                    setManagementSearch("");
-                  }}
-                  className={`px-4 py-2.5 rounded-t-lg text-sm font-semibold ${
-                    managementTab === "users"
-                      ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600"
-                      : "text-gray-500 hover:text-gray-800"
-                  }`}
-                >
-                  User Management
+          {/* MAIN CONTAINER */}
+          <main className="p-4 sm:p-6 lg:p-8 space-y-6">
+            {/* System Alerts */}
+            {error && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
+                <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+                <div className="flex-1 text-sm">
+                  <p className="font-bold">Error Notice</p>
+                  <p className="text-rose-700 mt-0.5">{error}</p>
+                </div>
+                <button onClick={() => setError("")} className="text-rose-500 hover:text-rose-700">
+                  <X className="w-4 h-4" />
                 </button>
               </div>
-            </div>
+            )}
 
-            {managementTab === "workers" ? (
-              <div className="p-4">
-                {filteredManagementWorkers.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <Users className="w-10 h-10 mx-auto text-gray-300 mb-2" />
-                    <p className="font-semibold text-gray-800">
-                      No workers found
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Try another search term.
+            {success && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
+                <div className="flex-1 text-sm">
+                  <p className="font-bold">Success</p>
+                  <p className="text-emerald-700 mt-0.5">{success}</p>
+                </div>
+                <button onClick={() => setSuccess("")} className="text-emerald-500 hover:text-emerald-700">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 1: DASHBOARD OVERVIEW (Matches Screen 2) */}
+            {/* ============================================================ */}
+            {activeNav === "dashboard" && (
+              <div className="space-y-6">
+                {/* Header Title + Period Filter */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Dashboard</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      Overview of complaints and city management
                     </p>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[850px]">
-                      <thead>
-                        <tr className="text-left text-xs text-gray-500 border-b">
-                          <th className="pb-3 pr-4">
-                            Worker
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Contact
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Department
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Specialization
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Account
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Availability
-                          </th>
-                          <th className="pb-3 text-right">
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
 
-                      <tbody className="divide-y">
-                        {filteredManagementWorkers.map(
-                          (worker) => {
-                            const accountActive =
-                              worker.users?.is_active !== false;
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={analyticsPeriod}
+                      onChange={(e) => setAnalyticsPeriod(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="7">Last 7 Days</option>
+                      <option value="30">Last 30 Days</option>
+                      <option value="90">Last 90 Days</option>
+                      <option value="all">All Time</option>
+                    </select>
 
-                            const busy =
-                              managementActionId === worker.id;
+                    <button
+                      onClick={() => loadDashboard(token, true)}
+                      disabled={refreshing}
+                      className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 shadow-2xs"
+                      title="Refresh Live Data"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 Top Stat Cards (Matches Screen 2: Total Complaints, In Progress, Resolved, Pending) */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Total Complaints */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <ClipboardList className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                        <TrendingUp className="w-3 h-3" /> ↑ 12%
+                      </span>
+                    </div>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-3">{stats.total}</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Total Complaints</p>
+                  </div>
+
+                  {/* Card 2: In Progress */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <Clock3 className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                        <TrendingUp className="w-3 h-3" /> ↑ 5%
+                      </span>
+                    </div>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-3">{stats.inProgress}</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">In Progress</p>
+                  </div>
+
+                  {/* Card 3: Resolved */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                        <TrendingUp className="w-3 h-3" /> ↑ 18%
+                      </span>
+                    </div>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-3">{stats.resolved}</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Resolved</p>
+                  </div>
+
+                  {/* Card 4: Pending */}
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                        ↓ 8%
+                      </span>
+                    </div>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-3">{stats.pending}</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Pending Action</p>
+                  </div>
+                </div>
+
+                {/* 2 Analytics Charts Row: Complaints by Category & Complaints Trend */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Chart 1: Complaints by Category (Donut + Legend) */}
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                    <h3 className="font-extrabold text-base text-slate-900">Complaints by Category</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Category share of total submissions</p>
+
+                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-6">
+                      <div className="relative w-48 h-48 shrink-0 flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={categoryChartData}
+                              dataKey="count"
+                              nameKey="name"
+                              innerRadius={55}
+                              outerRadius={80}
+                              paddingAngle={3}
+                            >
+                              {categoryChartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={getCategoryColor(index)} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                          <span className="text-2xl font-extrabold text-slate-900">{stats.total}</span>
+                          <span className="text-[11px] font-bold text-slate-400">Total</span>
+                        </div>
+                      </div>
+
+                      {/* Legend List */}
+                      <div className="flex-1 space-y-2.5 w-full">
+                        {categoryChartData.slice(0, 6).map((item, idx) => (
+                          <div key={item.name} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: getCategoryColor(idx) }}
+                              />
+                              <span className="font-semibold text-slate-700">{item.name}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-slate-900">{item.count}</span>
+                              <span className="text-slate-400 ml-1">({item.percentage}%)</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Chart 2: Complaints Trend (Bar Chart) */}
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-extrabold text-base text-slate-900">Complaints Trend</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Weekly volume distribution</p>
+                      </div>
+                    </div>
+
+                    <div className="h-56 mt-4">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={timeChartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="complaints" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recent Complaints Section (Matches Screen 2 Table) */}
+                <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                  <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                        Recent Complaints
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Latest municipal issues submitted by citizens
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveNav("complaints")}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 group"
+                    >
+                      View All
+                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+                  </div>
+
+                  {complaints.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <ClipboardList className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-slate-700">No complaints reported yet</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto mt-2">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="py-3 px-3">ID</th>
+                            <th className="py-3 px-3">Title</th>
+                            <th className="py-3 px-3">Category</th>
+                            <th className="py-3 px-3">Location</th>
+                            <th className="py-3 px-3">Status</th>
+                            <th className="py-3 px-3">Date</th>
+                            <th className="py-3 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {complaints.slice(0, 6).map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50/70 transition">
+                              <td className="py-3.5 px-3 font-mono font-bold text-blue-600">
+                                {item.complaint_code || item.id.slice(0, 8)}
+                              </td>
+                              <td className="py-3.5 px-3 font-semibold text-slate-900 max-w-[200px] truncate">
+                                {item.title}
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-600">
+                                {item.categories?.name || "General"}
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-500 max-w-[150px] truncate">
+                                {item.address || "Sector area"}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                {getStatusBadge(item.status)}
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-400 whitespace-nowrap">
+                                {formatDate(item.created_at)}
+                              </td>
+                              <td className="py-3.5 px-3 text-right">
+                                <button
+                                  onClick={() => openComplaint(item)}
+                                  className="text-blue-600 hover:text-blue-800 font-bold text-xs"
+                                >
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 2: COMPLAINTS MANAGEMENT (Matches Screen 3) */}
+            {/* ============================================================ */}
+            {activeNav === "complaints" && (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-slate-900">All Complaints</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      View, filter and manage all citizen complaints across the city.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => loadDashboard(token, true)}
+                      className="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Tabs: All, Pending, In Progress, Resolved (Screen 3) */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setStatusFilter("All")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-2xs ${
+                      statusFilter === "All"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    All ({complaints.length})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter("Pending")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-2xs ${
+                      statusFilter === "Pending"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    Pending ({stats.pending})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter("In Progress")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-2xs ${
+                      statusFilter === "In Progress"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    In Progress ({stats.inProgress})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter("Resolved")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-2xs ${
+                      statusFilter === "Resolved"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    Resolved ({stats.resolved})
+                  </button>
+                </div>
+
+                {/* Search & Filter Controls (Screen 3) */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search complaints..."
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 shadow-2xs focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
+                  >
+                    <option value="All">All Categories</option>
+                    {categoriesList.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
+                  >
+                    <option value="All">All Status</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="Verified">Verified</option>
+                    <option value="Assigned">Assigned</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+
+                {/* Complaints Table (Screen 3) */}
+                <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-6 shadow-xs overflow-hidden">
+                  {filteredComplaints.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <Filter className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                      <p className="font-bold text-slate-800 text-sm">No complaints match your criteria</p>
+                      <p className="text-xs text-slate-500 mt-1">Try resetting search keywords or category filters.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[850px]">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="py-3 px-3">ID</th>
+                            <th className="py-3 px-3">Title</th>
+                            <th className="py-3 px-3">Category</th>
+                            <th className="py-3 px-3">Location</th>
+                            <th className="py-3 px-3">Status</th>
+                            <th className="py-3 px-3">Assigned To</th>
+                            <th className="py-3 px-3">Date</th>
+                            <th className="py-3 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {filteredComplaints.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50/70 transition">
+                              <td className="py-3.5 px-3 font-mono font-bold text-blue-600">
+                                #{item.complaint_code || item.id.slice(0, 8)}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={item.photo_url || getFallbackImage(item.categories?.name, item.title)}
+                                    alt=""
+                                    className="w-10 h-10 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                  />
+                                  <div className="min-w-0 max-w-[200px]">
+                                    <p className="font-bold text-slate-900 truncate">{item.title}</p>
+                                    <p className="text-[11px] text-slate-400 truncate">{item.description}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-700 font-medium">
+                                {item.categories?.name || "General"}
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-500 max-w-[150px] truncate">
+                                {item.address || "Sector Area"}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                {getStatusBadge(item.status)}
+                              </td>
+                              <td className="py-3.5 px-3 font-medium text-slate-700">
+                                {getWorkerDisplayName(item)}
+                              </td>
+                              <td className="py-3.5 px-3 text-slate-400 whitespace-nowrap">
+                                {formatDate(item.created_at)}
+                              </td>
+                              <td className="py-3.5 px-3 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {!item.verified_at && (
+                                    <button
+                                      onClick={() => verifyComplaint(item.id)}
+                                      disabled={verifyingId === item.id}
+                                      className="px-2.5 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg font-bold text-[11px] border border-purple-200 transition"
+                                    >
+                                      {verifyingId === item.id ? "..." : "Verify"}
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => openComplaint(item)}
+                                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
+                                    title="View Details"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 3: COMPLAINTS MAP (Matches Screen 5) */}
+            {/* ============================================================ */}
+            {activeNav === "map" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-slate-900">Complaints Map</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      View all live complaints distributed geographically on the city map.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
+                    >
+                      <option value="All">All Categories</option>
+                      {categoriesList.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
+                    >
+                      <option value="All">All Status</option>
+                      <option value="Pending">Pending</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Resolved">Resolved</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Map Card */}
+                <div className="bg-white border border-slate-200/90 rounded-3xl overflow-hidden shadow-xs relative">
+                  <div className="h-[360px] sm:h-[520px] w-full relative z-10">
+                    {mapComplaints.length > 0 ? (
+                      <MapContainer
+                        center={[Number(mapComplaints[0].latitude), Number(mapComplaints[0].longitude)]}
+                        zoom={12}
+                        scrollWheelZoom={true}
+                        className="h-full w-full"
+                      >
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <MapBoundsController complaints={mapComplaints} />
+
+                        {mapComplaints.map((item) => {
+                          const markerColor =
+                            item.status === "Resolved"
+                              ? "#10b981"
+                              : item.status === "In Progress"
+                              ? "#f59e0b"
+                              : "#ef4444";
+
+                          return (
+                            <CircleMarker
+                              key={item.id}
+                              center={[Number(item.latitude), Number(item.longitude)]}
+                              radius={9}
+                              pathOptions={{
+                                color: "#ffffff",
+                                weight: 2.5,
+                                fillColor: markerColor,
+                                fillOpacity: 0.9,
+                              }}
+                            >
+                              <Popup>
+                                <div className="p-1 text-xs max-w-[220px]">
+                                  <span className="font-mono font-bold text-blue-600 text-[10px]">
+                                    #{item.complaint_code || item.id.slice(0, 8)}
+                                  </span>
+                                  <p className="font-bold text-slate-900 mt-0.5">{item.title}</p>
+                                  <p className="text-slate-500 text-[11px] mt-1 line-clamp-2">
+                                    {item.description}
+                                  </p>
+                                  <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                    <span className="font-semibold text-slate-700">{item.status}</span>
+                                    <button
+                                      onClick={() => openComplaint(item)}
+                                      className="text-blue-600 font-bold hover:underline"
+                                    >
+                                      Details
+                                    </button>
+                                  </div>
+                                </div>
+                              </Popup>
+                            </CircleMarker>
+                          );
+                        })}
+                      </MapContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center p-6 text-center bg-slate-50">
+                        <div>
+                          <MapIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                          <p className="font-bold text-slate-800 text-sm">No Geolocation Pins</p>
+                          <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                            Complaints matching the selected filter currently lack GPS coordinates.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Map Legend (Screen 5) */}
+                  <div className="p-3 bg-white border-t border-slate-200 flex flex-wrap items-center justify-center gap-6 text-xs font-semibold text-slate-700">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Pending
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> In Progress
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Resolved
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 4: WORKERS MANAGEMENT (Matches Screen 6) */}
+            {/* ============================================================ */}
+            {activeNav === "workers" && (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-slate-900">Workers</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      Manage city workers and their field assignments.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddWorkerModal(true)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Worker
+                    </button>
+                    <button
+                      onClick={refreshManagement}
+                      disabled={managementLoading}
+                      className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 shadow-2xs"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${managementLoading ? "animate-spin" : ""}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Workers Table (Screen 6) */}
+                <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-6 shadow-xs overflow-hidden">
+                  <div className="mb-4 max-w-sm">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={managementSearch}
+                        onChange={(e) => setManagementSearch(e.target.value)}
+                        placeholder="Search workers by name or code..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {filteredWorkers.length === 0 ? (
+                    <div className="py-14 text-center">
+                      <Wrench className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="font-bold text-slate-800 text-sm">No workers found</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[750px]">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="py-3 px-3">Name</th>
+                            <th className="py-3 px-3">Department</th>
+                            <th className="py-3 px-3">Assigned</th>
+                            <th className="py-3 px-3">Completed</th>
+                            <th className="py-3 px-3">Status</th>
+                            <th className="py-3 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {filteredWorkers.map((w, idx) => {
+                            const assignedCount = complaints.filter((c) => c.assigned_worker_id === w.id).length;
+                            const completedCount = complaints.filter(
+                              (c) => c.assigned_worker_id === w.id && c.status === "Resolved"
+                            ).length;
+                            const isAvail = w.is_available && w.users?.is_active !== false;
+
+                            // Initials for avatar
+                            const initials = (w.users?.name || "Worker")
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase();
 
                             return (
-                              <tr key={worker.id}>
-                                <td className="py-4 pr-4">
+                              <tr key={w.id} className="hover:bg-slate-50/70 transition">
+                                <td className="py-3.5 px-3">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-full overflow-hidden bg-blue-100 flex items-center justify-center">
-                                      {worker.users
-                                        ?.profile_image_url ? (
-                                        <img
-                                          src={
-                                            worker.users
-                                              .profile_image_url
-                                          }
-                                          alt=""
-                                          className="w-full h-full object-cover"
-                                        />
-                                      ) : (
-                                        <UserRound className="w-4 h-4 text-blue-600" />
-                                      )}
+                                    <div
+                                      className="w-9 h-9 rounded-full text-white font-bold text-xs flex items-center justify-center shrink-0"
+                                      style={{ backgroundColor: getCategoryColor(idx) }}
+                                    >
+                                      {initials}
                                     </div>
-
                                     <div>
-                                      <p className="font-semibold text-gray-900">
-                                        {worker.users?.name ||
-                                          "Worker"}
-                                      </p>
-                                      <p className="text-xs text-gray-500 font-mono">
-                                        {worker.worker_code}
-                                      </p>
+                                      <p className="font-bold text-slate-900">{w.users?.name || "Worker"}</p>
+                                      <p className="text-[11px] font-mono text-slate-400">{w.worker_code}</p>
                                     </div>
                                   </div>
                                 </td>
-
-                                <td className="py-4 pr-4">
-                                  <p className="text-sm text-gray-800">
-                                    {worker.users?.email ||
-                                      "N/A"}
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    {worker.users?.phone ||
-                                      "No phone"}
-                                  </p>
+                                <td className="py-3.5 px-3 font-medium text-slate-700">
+                                  {w.department || "Public Works"}
                                 </td>
-
-                                <td className="py-4 pr-4 text-sm text-gray-700">
-                                  {worker.department ||
-                                    "Not specified"}
+                                <td className="py-3.5 px-3 font-bold text-slate-900">
+                                  {assignedCount}
                                 </td>
-
-                                <td className="py-4 pr-4 text-sm text-gray-700">
-                                  {worker.specialization ||
-                                    "General"}
+                                <td className="py-3.5 px-3 font-bold text-emerald-600">
+                                  {completedCount}
                                 </td>
-
-                                <td className="py-4 pr-4">
+                                <td className="py-3.5 px-3">
                                   <span
-                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                      accountActive
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-red-100 text-red-700"
+                                    className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                      isAvail
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                        : "bg-slate-100 text-slate-600 border-slate-200"
                                     }`}
                                   >
-                                    {accountActive ? (
-                                      <UserCheck className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <UserX className="w-3.5 h-3.5" />
-                                    )}
-                                    {accountActive
-                                      ? "Active"
-                                      : "Inactive"}
+                                    {isAvail ? "Active" : "Inactive"}
                                   </span>
                                 </td>
-
-                                <td className="py-4 pr-4">
-                                  <span
-                                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                      worker.is_available &&
-                                      accountActive
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-orange-100 text-orange-700"
-                                    }`}
-                                  >
-                                    {worker.is_available &&
-                                    accountActive
-                                      ? "Available"
-                                      : "Unavailable"}
-                                  </span>
-                                </td>
-
-                                <td className="py-4 text-right">
+                                <td className="py-3.5 px-3 text-right">
                                   <button
-                                    type="button"
-                                    onClick={() =>
-                                      toggleWorkerAvailability(
-                                        worker
-                                      )
-                                    }
-                                    disabled={
-                                      busy ||
-                                      !accountActive
-                                    }
-                                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50 ${
-                                      worker.is_available
-                                        ? "bg-orange-50 text-orange-700 hover:bg-orange-100"
-                                        : "bg-green-50 text-green-700 hover:bg-green-100"
+                                    onClick={() => toggleWorkerAvailability(w)}
+                                    disabled={managementActionId === w.id}
+                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition border ${
+                                      w.is_available
+                                        ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                                        : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
                                     }`}
                                   >
-                                    {worker.is_available ? (
-                                      <Ban className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                    )}
-
-                                    {busy
-                                      ? "Updating..."
-                                      : worker.is_available
+                                    {managementActionId === w.id
+                                      ? "..."
+                                      : w.is_available
                                       ? "Set Unavailable"
                                       : "Set Available"}
                                   </button>
                                 </td>
                               </tr>
                             );
-                          }
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="p-4">
-                {filteredManagementUsers.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <Users className="w-10 h-10 mx-auto text-gray-300 mb-2" />
-                    <p className="font-semibold text-gray-800">
-                      No users found
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Try another search term.
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 5: USERS MANAGEMENT (Matches Screen 8) */}
+            {/* ============================================================ */}
+            {activeNav === "users" && (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-slate-900">Citizens & Users</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      Manage registered citizens and portal user accounts.
                     </p>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[800px]">
-                      <thead>
-                        <tr className="text-left text-xs text-gray-500 border-b">
-                          <th className="pb-3 pr-4">
-                            User
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Role
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Phone
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Joined
-                          </th>
-                          <th className="pb-3 pr-4">
-                            Status
-                          </th>
-                          <th className="pb-3 text-right">
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
+                  <button
+                    onClick={refreshManagement}
+                    disabled={managementLoading}
+                    className="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${managementLoading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </button>
+                </div>
 
-                      <tbody className="divide-y">
-                        {filteredManagementUsers.map(
-                          (managedUser) => {
-                            const busy =
-                              managementActionId ===
-                              managedUser.id;
+                <div className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-6 shadow-xs overflow-hidden">
+                  <div className="mb-4 max-w-sm">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={managementSearch}
+                        onChange={(e) => setManagementSearch(e.target.value)}
+                        placeholder="Search citizens by name, email..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
 
-                            const isSelf =
-                              managedUser.id ===
-                              user?.id;
+                  {filteredUsers.length === 0 ? (
+                    <div className="py-14 text-center">
+                      <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="font-bold text-slate-800 text-sm">No citizens found</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            <th className="py-3 px-3">Name</th>
+                            <th className="py-3 px-3">Email</th>
+                            <th className="py-3 px-3">Role</th>
+                            <th className="py-3 px-3">Status</th>
+                            <th className="py-3 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {filteredUsers.map((u, idx) => {
+                            const isSelf = u.id === user?.id;
+                            const initials = (u.name || "User")
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase();
 
                             return (
-                              <tr key={managedUser.id}>
-                                <td className="py-4 pr-4">
+                              <tr key={u.id} className="hover:bg-slate-50/70 transition">
+                                <td className="py-3.5 px-3">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                                      {managedUser.profile_image_url ? (
-                                        <img
-                                          src={
-                                            managedUser.profile_image_url
-                                          }
-                                          alt=""
-                                          className="w-full h-full object-cover"
-                                        />
-                                      ) : (
-                                        <UserRound className="w-4 h-4 text-gray-500" />
-                                      )}
+                                    <div
+                                      className="w-9 h-9 rounded-full text-white font-bold text-xs flex items-center justify-center shrink-0"
+                                      style={{ backgroundColor: getCategoryColor(idx + 2) }}
+                                    >
+                                      {initials}
                                     </div>
-
-                                    <div>
-                                      <p className="font-semibold text-gray-900">
-                                        {managedUser.name ||
-                                          "Unnamed User"}
-                                      </p>
-                                      <p className="text-xs text-gray-500">
-                                        {managedUser.email}
-                                      </p>
-                                    </div>
+                                    <span className="font-bold text-slate-900">{u.name || "Citizen"}</span>
                                   </div>
                                 </td>
-
-                                <td className="py-4 pr-4">
-                                  <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold capitalize">
-                                    {managedUser.role}
-                                  </span>
-                                </td>
-
-                                <td className="py-4 pr-4 text-sm text-gray-700">
-                                  {managedUser.phone ||
-                                    "Not provided"}
-                                </td>
-
-                                <td className="py-4 pr-4 text-sm text-gray-700">
-                                  {formatDate(
-                                    managedUser.created_at
-                                  )}
-                                </td>
-
-                                <td className="py-4 pr-4">
+                                <td className="py-3.5 px-3 text-slate-600">{u.email}</td>
+                                <td className="py-3.5 px-3 capitalize font-medium text-slate-700">{u.role}</td>
+                                <td className="py-3.5 px-3">
                                   <span
-                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                      managedUser.is_active
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-red-100 text-red-700"
+                                    className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                      u.is_active
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                        : "bg-rose-50 text-rose-700 border-rose-200"
                                     }`}
                                   >
-                                    {managedUser.is_active ? (
-                                      <UserCheck className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <UserX className="w-3.5 h-3.5" />
-                                    )}
-                                    {managedUser.is_active
-                                      ? "Active"
-                                      : "Inactive"}
+                                    {u.is_active ? "Active" : "Inactive"}
                                   </span>
                                 </td>
-
-                                <td className="py-4 text-right">
+                                <td className="py-3.5 px-3 text-right">
                                   <button
-                                    type="button"
-                                    onClick={() =>
-                                      toggleUserStatus(
-                                        managedUser
-                                      )
-                                    }
-                                    disabled={
-                                      busy || isSelf
-                                    }
-                                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50 ${
-                                      managedUser.is_active
-                                        ? "bg-red-50 text-red-700 hover:bg-red-100"
-                                        : "bg-green-50 text-green-700 hover:bg-green-100"
+                                    onClick={() => toggleUserStatus(u)}
+                                    disabled={managementActionId === u.id || isSelf}
+                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition border disabled:opacity-40 ${
+                                      u.is_active
+                                        ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                                        : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
                                     }`}
                                   >
-                                    {managedUser.is_active ? (
-                                      <UserX className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <UserCheck className="w-3.5 h-3.5" />
-                                    )}
-
-                                    {busy
-                                      ? "Updating..."
-                                      : managedUser.is_active
+                                    {managementActionId === u.id
+                                      ? "..."
+                                      : u.is_active
                                       ? "Deactivate"
                                       : "Activate"}
                                   </button>
-
-                                  {isSelf && (
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                      Current admin
-                                    </p>
-                                  )}
                                 </td>
                               </tr>
                             );
-                          }
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-          </div>
-        </section>
 
-        <section id="analytics-section" className="mb-7 scroll-mt-28">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-600" />
-
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  Advanced Analytics
-                </h2>
-
-                <p className="text-sm text-gray-500">
-                  Operational trends, complaint aging, priority and verification metrics.
-                </p>
-              </div>
-            </div>
-
-            <select
-              value={analyticsPeriod}
-              onChange={(e) => setAnalyticsPeriod(e.target.value)}
-              className="border rounded-lg px-4 py-2.5 bg-white text-sm"
-            >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="all">All available data</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-            <div className="bg-white border rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Period Complaints
-                  </p>
-                  <p className="text-3xl font-bold mt-2">
-                    {advancedAnalytics.periodComplaints.length}
-                  </p>
-                </div>
-
-                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                  <BarChart3 className="w-5 h-5 text-blue-600" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Verification Rate
-                  </p>
-                  <p className="text-3xl font-bold text-purple-600 mt-2">
-                    {advancedAnalytics.verificationRate}%
-                  </p>
-                </div>
-
-                <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                  <ShieldCheck className="w-5 h-5 text-purple-600" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Active Complaints
-                  </p>
-                  <p className="text-3xl font-bold text-orange-600 mt-2">
-                    {advancedAnalytics.activeCount}
-                  </p>
-                </div>
-
-                <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-orange-600" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Avg Active Age
-                  </p>
-                  <p className="text-3xl font-bold text-red-600 mt-2">
-                    {formatAge(advancedAnalytics.averageAgeHours)}
-                  </p>
-                </div>
-
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <Clock3 className="w-5 h-5 text-red-600" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {/* PRIORITY DISTRIBUTION */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Complaints by Priority
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Priority distribution for the selected period.
-              </p>
-
-              {advancedAnalytics.priorityData.length === 0 ? (
-                <div className="h-[280px] flex items-center justify-center text-gray-400">
-                  No priority data available.
-                </div>
-              ) : (
-                <div className="h-[280px] mt-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={advancedAnalytics.priorityData}
-                      margin={{
-                        top: 10,
-                        right: 10,
-                        left: 0,
-                        bottom: 10,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-
-                      <Bar
-                        dataKey="value"
-                        name="Complaints"
-                        fill="#8b5cf6"
-                        radius={[5, 5, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            {/* AGING */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Active Complaint Aging
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Age buckets for unresolved complaints.
-              </p>
-
-              {advancedAnalytics.agingData.every(
-                (item) => item.complaints === 0
-              ) ? (
-                <div className="h-[280px] flex items-center justify-center text-gray-400">
-                  No active complaint aging data available.
-                </div>
-              ) : (
-                <div className="h-[280px] mt-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={advancedAnalytics.agingData}
-                      margin={{
-                        top: 10,
-                        right: 10,
-                        left: 0,
-                        bottom: 10,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-
-                      <Bar
-                        dataKey="complaints"
-                        name="Active complaints"
-                        fill="#f97316"
-                        radius={[5, 5, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            {/* MONTHLY TREND */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Monthly Complaint Trend
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Complaint submissions within the selected period.
-              </p>
-
-              {advancedAnalytics.monthlyTrendData.length === 0 ? (
-                <div className="h-[280px] flex items-center justify-center text-gray-400">
-                  No monthly trend data available.
-                </div>
-              ) : (
-                <div className="h-[280px] mt-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={advancedAnalytics.monthlyTrendData}
-                      margin={{
-                        top: 10,
-                        right: 20,
-                        left: 0,
-                        bottom: 10,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-
-                      <Line
-                        type="monotone"
-                        dataKey="complaints"
-                        name="Complaints"
-                        stroke="#3b82f6"
-                        strokeWidth={3}
-                        dot={{ r: 4 }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            {/* PERIOD SUMMARY */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Period Summary
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Key counts for the selected analytics period.
-              </p>
-
-              <div className="mt-5 space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <span className="text-sm text-gray-600">
-                    Verified complaints
-                  </span>
-                  <span className="font-semibold">
-                    {advancedAnalytics.verifiedCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between border-b pb-3">
-                  <span className="text-sm text-gray-600">
-                    Resolved complaints
-                  </span>
-                  <span className="font-semibold text-green-600">
-                    {advancedAnalytics.resolvedCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between border-b pb-3">
-                  <span className="text-sm text-gray-600">
-                    Rejected complaints
-                  </span>
-                  <span className="font-semibold text-red-600">
-                    {advancedAnalytics.rejectedCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">
-                    Active complaints
-                  </span>
-                  <span className="font-semibold text-orange-600">
-                    {advancedAnalytics.activeCount}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-5 p-4 rounded-xl bg-blue-50 border border-blue-100">
-                <div className="flex items-start gap-3">
-                  <Target className="w-5 h-5 text-blue-600 mt-0.5" />
-
+            {/* ============================================================ */}
+            {/* VIEW 6: ANALYTICS & REPORTS (Matches Screen 7) */}
+            {/* ============================================================ */}
+            {(activeNav === "analytics" || activeNav === "reports") && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <p className="font-semibold text-blue-900">
-                      Analytics scope
-                    </p>
-                    <p className="text-xs text-blue-700 mt-1">
-                      These metrics are calculated from the complaints currently
-                      returned by the admin API and the selected time period.
+                    <h1 className="text-2xl font-extrabold text-slate-900">Analytics & Reports</h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      Comprehensive resolution breakdown and workload metrics.
                     </p>
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        {/* ====================================================
-            ANALYTICS CHARTS
-        ==================================================== */}
-
-        <section className="mb-7">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="w-5 h-5 text-blue-600" />
-
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                Complaint Analytics
-              </h2>
-
-              <p className="text-sm text-gray-500">
-                Overview of complaint activity and workload.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {/* STATUS PIE */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Complaints by Status
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Current complaint lifecycle distribution.
-              </p>
-
-              {statusChartData.length === 0 ? (
-                <div className="h-[320px] flex items-center justify-center text-gray-400">
-                  No complaint data available.
-                </div>
-              ) : (
-                <div className="h-[320px] mt-3">
-                  <ResponsiveContainer
-                    width="100%"
-                    height="100%"
+                  <select
+                    value={analyticsPeriod}
+                    onChange={(e) => setAnalyticsPeriod(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
                   >
-                    <PieChart>
-                      <Pie
-                        data={statusChartData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={105}
-                        label
-                      >
-                        {statusChartData.map(
-                          (entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={
-                                PIE_COLORS[
-                                  index %
-                                    PIE_COLORS.length
-                                ]
-                              }
-                            />
-                          )
-                        )}
-                      </Pie>
-
-                      <Tooltip />
-
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
+                    <option value="7">Last 7 Days</option>
+                    <option value="30">Last 30 Days</option>
+                    <option value="90">Last 90 Days</option>
+                    <option value="all">All Available Data</option>
+                  </select>
                 </div>
-              )}
-            </div>
 
-            {/* CATEGORY BAR */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Complaints by Category
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Number of complaints for each civic category.
-              </p>
-
-              {categoryChartData.length === 0 ? (
-                <div className="h-[320px] flex items-center justify-center text-gray-400">
-                  No category data available.
-                </div>
-              ) : (
-                <div className="h-[320px] mt-3">
-                  <ResponsiveContainer
-                    width="100%"
-                    height="100%"
-                  >
-                    <BarChart
-                      data={categoryChartData}
-                      margin={{
-                        top: 10,
-                        right: 10,
-                        left: 0,
-                        bottom: 45,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-
-                      <XAxis
-                        dataKey="name"
-                        angle={-35}
-                        textAnchor="end"
-                        interval={0}
+                {/* Key KPIs Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Resolution Rate
+                    </p>
+                    <p className="text-3xl font-extrabold text-emerald-600 mt-2">
+                      {stats.resolutionRate}%
+                    </p>
+                    <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full"
+                        style={{ width: `${stats.resolutionRate}%` }}
                       />
+                    </div>
+                  </div>
 
-                      <YAxis allowDecimals={false} />
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Avg Resolution Time
+                    </p>
+                    <p className="text-3xl font-extrabold text-blue-600 mt-2">
+                      {stats.averageResolutionHours > 0
+                        ? `${stats.averageResolutionHours.toFixed(1)} hrs`
+                        : "N/A"}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-2">Calculated from resolved reports</p>
+                  </div>
 
-                      <Tooltip />
-
-                      <Bar
-                        dataKey="complaints"
-                        fill="#3b82f6"
-                        radius={[
-                          5,
-                          5,
-                          0,
-                          0,
-                        ]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Active Field Force
+                    </p>
+                    <p className="text-3xl font-extrabold text-purple-600 mt-2">
+                      {stats.workersCount} Workers
+                    </p>
+                    <p className="text-xs text-slate-500 mt-2">Assigned across municipal sectors</p>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* TIME LINE */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Complaints Over Time
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Recent complaint submissions.
-              </p>
-
-              {timeChartData.length === 0 ? (
-                <div className="h-[320px] flex items-center justify-center text-gray-400">
-                  No time-series data available.
-                </div>
-              ) : (
-                <div className="h-[320px] mt-3">
-                  <ResponsiveContainer
-                    width="100%"
-                    height="100%"
-                  >
-                    <LineChart
-                      data={timeChartData}
-                      margin={{
-                        top: 10,
-                        right: 20,
-                        left: 0,
-                        bottom: 10,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-
-                      <XAxis dataKey="date" />
-
-                      <YAxis
-                        allowDecimals={false}
-                      />
-
-                      <Tooltip />
-
-                      <Line
-                        type="monotone"
-                        dataKey="complaints"
-                        stroke="#8b5cf6"
-                        strokeWidth={3}
-                        dot={{ r: 4 }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            {/* WORKER WORKLOAD */}
-
-            <div className="bg-white border rounded-2xl shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900">
-                Worker Workload
-              </h3>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Assigned and resolved complaints per worker.
-              </p>
-
-              {workerChartData.length === 0 ? (
-                <div className="h-[320px] flex items-center justify-center text-gray-400">
-                  No worker data available.
-                </div>
-              ) : (
-                <div className="h-[320px] mt-3">
-                  <ResponsiveContainer
-                    width="100%"
-                    height="100%"
-                  >
-                    <BarChart
-                      data={workerChartData}
-                      margin={{
-                        top: 10,
-                        right: 10,
-                        left: 0,
-                        bottom: 45,
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-
-                      <XAxis
-                        dataKey="name"
-                        angle={-30}
-                        textAnchor="end"
-                        interval={0}
-                      />
-
-                      <YAxis allowDecimals={false} />
-
-                      <Tooltip />
-
-                      <Legend />
-
-                      <Bar
-                        dataKey="assigned"
-                        fill="#eab308"
-                        name="Assigned"
-                        radius={[
-                          5,
-                          5,
-                          0,
-                          0,
-                        ]}
-                      />
-
-                      <Bar
-                        dataKey="resolved"
-                        fill="#22c55e"
-                        name="Resolved"
-                        radius={[
-                          5,
-                          5,
-                          0,
-                          0,
-                        ]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* ====================================================
-            COMPLAINT MAP
-        ==================================================== */}
-
-        <section id="map-section" className="mb-7 scroll-mt-28">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <MapPinned className="w-5 h-5 text-blue-600" />
-
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  Smart Complaint Heatmap
-                </h2>
-
-                <p className="text-sm text-gray-500">
-                  Geographic complaint density calculated from the current
-                  search and status filters.
-                </p>
-              </div>
-            </div>
-
-            <div className="inline-flex rounded-lg border bg-white p-1 self-start md:self-auto">
-              <button
-                type="button"
-                onClick={() => setMapViewMode("markers")}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition ${
-                  mapViewMode === "markers"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                Markers
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMapViewMode("heatmap")}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition ${
-                  mapViewMode === "heatmap"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                Heatmap
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-            {mapComplaints.length === 0 ? (
-              <div className="h-[420px] flex flex-col items-center justify-center text-center px-6">
-                <MapPinned className="w-12 h-12 text-gray-300 mb-3" />
-
-                <p className="font-semibold text-gray-900">
-                  No complaint locations available
-                </p>
-
-                <p className="text-sm text-gray-500 mt-1 max-w-md">
-                  Complaints need valid latitude and longitude values to appear
-                  on the map. Try changing the current search or status filter.
-                </p>
-              </div>
-            ) : (
-              <div className="h-[420px] w-full">
-                <MapContainer
-                  center={[19.076, 72.8777]}
-                  zoom={11}
-                  scrollWheelZoom={true}
-                  className="h-full w-full"
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-
-                  <MapBoundsController complaints={mapComplaints} />
-
-                  {mapViewMode === "markers" &&
-                    mapComplaints.map((complaint) => {
-                      const latitude = Number(complaint.latitude);
-                      const longitude = Number(complaint.longitude);
-                      const markerColor = getMapStatusColor(
-                        complaint.status
-                      );
-
-                      return (
-                        <CircleMarker
-                          key={complaint.id}
-                          center={[latitude, longitude]}
-                          radius={9}
-                          pathOptions={{
-                            color: "#ffffff",
-                            weight: 2,
-                            fillColor: markerColor,
-                            fillOpacity: 0.9,
-                          }}
-                        >
-                          <Popup>
-                            <div className="min-w-[220px]">
-                              <p className="text-xs font-mono text-gray-500">
-                                {complaint.complaint_code}
-                              </p>
-
-                              <p className="font-semibold text-gray-900 mt-1">
-                                {complaint.title}
-                              </p>
-
-                              <div className="mt-2 space-y-1 text-sm">
-                                <p>
-                                  <strong>Status:</strong>{" "}
-                                  {complaint.status}
-                                </p>
-
-                                <p>
-                                  <strong>Category:</strong>{" "}
-                                  {complaint.categories?.name ||
-                                    "Not specified"}
-                                </p>
-
-                                <p>
-                                  <strong>Priority:</strong>{" "}
-                                  {complaint.priority || "Not specified"}
-                                </p>
-
-                                {complaint.address && (
-                                  <p>
-                                    <strong>Address:</strong>{" "}
-                                    {complaint.address}
-                                  </p>
-                                )}
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => openComplaint(complaint)}
-                                className="mt-3 w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-                              >
-                                View Complaint
-                              </button>
-                            </div>
-                          </Popup>
-                        </CircleMarker>
-                      );
-                    })}
-
-                  {mapViewMode === "heatmap" &&
-                    heatmapData.map((point) => {
-                      const heatColor = getHeatmapColor(
-                        point.intensity
-                      );
-
-                      return (
-                        <CircleMarker
-                          key={`heat-${point.complaint.id}`}
-                          center={[
-                            point.latitude,
-                            point.longitude,
-                          ]}
-                          radius={getHeatmapRadius(point.intensity)}
-                          pathOptions={{
-                            color: heatColor,
-                            weight: 1,
-                            fillColor: heatColor,
-                            fillOpacity:
-                              0.18 +
-                              point.intensity * 0.35,
-                          }}
-                        >
-                          <Popup>
-                            <div className="min-w-[220px]">
-                              <p className="text-xs font-mono text-gray-500">
-                                {point.complaint.complaint_code}
-                              </p>
-
-                              <p className="font-semibold text-gray-900 mt-1">
-                                {point.complaint.title}
-                              </p>
-
-                              <div className="mt-2 space-y-1 text-sm">
-                                <p>
-                                  <strong>Nearby complaints:</strong>{" "}
-                                  {point.nearbyCount}
-                                </p>
-
-                                <p>
-                                  <strong>Priority:</strong>{" "}
-                                  {point.complaint.priority ||
-                                    "Not specified"}
-                                </p>
-
-                                <p>
-                                  <strong>Status:</strong>{" "}
-                                  {point.complaint.status}
-                                </p>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openComplaint(point.complaint)
-                                }
-                                className="mt-3 w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-                              >
-                                View Complaint
-                              </button>
-                            </div>
-                          </Popup>
-                        </CircleMarker>
-                      );
-                    })}
-                </MapContainer>
-              </div>
-            )}
-          </div>
-
-          {mapViewMode === "markers" ? (
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-600">
-              {[
-                ["Submitted", "#6b7280"],
-                ["Verified", "#8b5cf6"],
-                ["Assigned", "#eab308"],
-                ["In Progress", "#3b82f6"],
-                ["Resolved", "#22c55e"],
-                ["Rejected", "#ef4444"],
-              ].map(([status, color]) => (
-                <div
-                  key={status}
-                  className="inline-flex items-center gap-2"
-                >
-                  <span
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: color }}
-                  />
-                  <span>{status}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-gray-600">
-              <span className="font-semibold text-gray-700">
-                Density:
-              </span>
-
-              {[
-                ["Low", "#3b82f6"],
-                ["Medium", "#eab308"],
-                ["High", "#f97316"],
-                ["Very High", "#ef4444"],
-              ].map(([label, color]) => (
-                <div
-                  key={label}
-                  className="inline-flex items-center gap-2"
-                >
-                  <span
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: color }}
-                  />
-                  <span>{label}</span>
-                </div>
-              ))}
-
-              <span className="text-gray-400">
-                Density uses a 1 km neighborhood and complaint priority.
-              </span>
-            </div>
-          )}
-
-          <p className="text-xs text-gray-500 mt-2">
-            Showing {mapComplaints.length} complaint
-            {mapComplaints.length === 1 ? "" : "s"} with valid coordinates.
-            {mapViewMode === "heatmap" &&
-              ` ${heatmapData.length} heatmap points calculated.`}
-          </p>
-        </section>
-
-        {/* ====================================================
-            FILTERS
-        ==================================================== */}
-
-        <div className="bg-white border rounded-2xl shadow-sm p-4 mb-5">
-          <div className="flex flex-col md:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-
-              <input
-                type="text"
-                placeholder="Search complaints..."
-                value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
-                }
-                className="w-full border rounded-lg pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <select
-              value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value)
-              }
-              className="border rounded-lg px-4 py-2.5 bg-white"
-            >
-              <option value="All">
-                All Status
-              </option>
-
-              <option value="Submitted">
-                Submitted
-              </option>
-
-              <option value="Verified">
-                Verified
-              </option>
-
-              <option value="Assigned">
-                Assigned
-              </option>
-
-              <option value="In Progress">
-                In Progress
-              </option>
-
-              <option value="Resolved">
-                Resolved
-              </option>
-
-              <option value="Rejected">
-                Rejected
-              </option>
-            </select>
-          </div>
-        </div>
-
-        {/* ====================================================
-            COMPLAINT MANAGEMENT
-        ==================================================== */}
-
-        <section id="complaints-section" className="bg-white border rounded-2xl shadow-sm overflow-hidden scroll-mt-28">
-          <div className="p-5 border-b">
-            <h2 className="text-xl font-bold text-gray-900">
-              Complaint Management
-            </h2>
-
-            <p className="text-sm text-gray-500 mt-1">
-              Review, verify and assign citizen complaints.
-            </p>
-          </div>
-
-          {filteredComplaints.length === 0 ? (
-            <div className="py-16 text-center">
-              <Wrench className="w-10 h-10 mx-auto text-gray-300 mb-3" />
-
-              <p className="font-semibold text-gray-900">
-                No complaints found
-              </p>
-
-              <p className="text-sm text-gray-500 mt-1">
-                Try changing your search or status filter.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {filteredComplaints.map(
-                (complaint) => (
-                  <div
-                    key={complaint.id}
-                    className="p-5 hover:bg-gray-50"
-                  >
-                    <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
-                      <div className="flex-1">
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          <span className="text-xs font-mono text-gray-500">
-                            {
-                              complaint.complaint_code
-                            }
-                          </span>
-
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusClass(
-                              complaint.status
-                            )}`}
-                          >
-                            {complaint.status}
-                          </span>
-
-                          {complaint.priority && (
-                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                              {complaint.priority}
-                            </span>
-                          )}
-                        </div>
-
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {complaint.title}
-                        </h3>
-
-                        <p className="text-sm text-gray-600 mt-2 line-clamp-2">
-                          {
-                            complaint.description
-                          }
-                        </p>
-
-                        <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500 mt-4">
-                          <span>
-                            Category:{" "}
-                            <strong className="text-gray-700">
-                              {complaint
-                                .categories
-                                ?.name ||
-                                "Not specified"}
-                            </strong>
-                          </span>
-
-                          <span>
-                            Worker:{" "}
-                            <strong className="text-gray-700">
-                              {getWorkerName(
-                                complaint
-                              )}
-                            </strong>
-                          </span>
-
-                          <span>
-                            Created:{" "}
-                            {formatDate(
-                              complaint.created_at
-                            )}
-                          </span>
+                {/* Charts Row: Complaints by Category & Status Distribution (Matches Screen 7) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Category Bar Chart */}
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                    <h3 className="font-extrabold text-base text-slate-900">Complaints by Category</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Total counts by municipal department</p>
+                    <div className="h-64 mt-4">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={categoryChartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]}>
+                            {categoryChartData.map((entry, index) => (
+                              <Cell key={`bar-${index}`} fill={getCategoryColor(index)} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Status Distribution (Donut Chart) */}
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                    <h3 className="font-extrabold text-base text-slate-900">Status Distribution</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Lifecycle distribution metrics</p>
+                    <div className="flex flex-col sm:flex-row items-center gap-6 mt-4">
+                      <div className="relative w-48 h-48 shrink-0 flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={statusChartData}
+                              dataKey="value"
+                              nameKey="name"
+                              innerRadius={55}
+                              outerRadius={80}
+                              paddingAngle={4}
+                            >
+                              {statusChartData.map((entry, index) => (
+                                <Cell key={`status-pie-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                          <span className="text-2xl font-extrabold text-slate-900">{stats.total}</span>
+                          <span className="text-[11px] font-bold text-slate-400">Total</span>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {!complaint.verified_at && (
-                          <button
-                            onClick={() =>
-                              verifyComplaint(
-                                complaint.id
-                              )
-                            }
-                            disabled={
-                              verifyingId ===
-                              complaint.id
-                            }
-                            className="inline-flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
-                          >
-                            <ShieldCheck className="w-4 h-4" />
-
-                            {verifyingId ===
-                            complaint.id
-                              ? "Verifying..."
-                              : "Verify"}
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() =>
-                            openComplaint(
-                              complaint
-                            )
-                          }
-                          className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm hover:bg-gray-100"
-                        >
-                          <Eye className="w-4 h-4" />
-
-                          View
-                        </button>
+                      <div className="flex-1 space-y-3 w-full">
+                        {statusChartData.map((item) => {
+                          const pct = stats.total > 0 ? Math.round((item.value / stats.total) * 100) : 0;
+                          return (
+                            <div key={item.name} className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                                <span className="font-semibold text-slate-700">{item.name}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-slate-900">{item.value}</span>
+                                <span className="text-slate-400 ml-1">({pct}%)</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
-                )
-              )}
-            </div>
-          )}
-        </section>
+                </div>
+
+                {/* Worker Workload Breakdown */}
+                <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                  <h3 className="font-extrabold text-base text-slate-900">Worker Workload Overview</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Assigned vs Resolved complaints per worker</p>
+                  <div className="h-64 mt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={workerWorkloadData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="assigned" name="Assigned" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="resolved" name="Resolved" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* VIEW 7: DEPARTMENTS, REWARDS, ANNOUNCEMENTS, SETTINGS */}
+            {/* ============================================================ */}
+            {activeNav === "departments" && (
+              <div className="space-y-6">
+                <h1 className="text-2xl font-extrabold text-slate-900">Municipal Departments</h1>
+                <p className="text-xs sm:text-sm text-slate-500 -mt-4">
+                  Active municipal service departments managing public works and civic amenities.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {[
+                    "Roads & Transport",
+                    "Water Supply",
+                    "Waste Management & Sanitation",
+                    "Electricity & Public Lighting",
+                    "Parks & Gardens",
+                    "Health & Public Safety",
+                  ].map((dept, idx) => (
+                    <div key={dept} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs">
+                      <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                        <Building2 className="w-5 h-5" />
+                      </div>
+                      <h3 className="font-extrabold text-slate-900 text-sm">{dept}</h3>
+                      <p className="text-xs text-slate-500 mt-1">Official Municipal Division</p>
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                        <span className="text-slate-400">Workers Assigned</span>
+                        <span className="text-blue-600 font-bold">
+                          {workers.filter((w) => w.department?.toLowerCase().includes(dept.toLowerCase().split(" ")[0])).length || 1}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeNav === "rewards" && (
+              <div className="space-y-6">
+                <h1 className="text-2xl font-extrabold text-slate-900">Citizen Rewards & Badges</h1>
+                <p className="text-xs sm:text-sm text-slate-500 -mt-4">
+                  Civic engagement gamification system rewarding active citizens.
+                </p>
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs text-sm">
+                  <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Award className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900">Civic Hero Badges Active</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">Citizens automatically earn points for verified reports.</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-4 leading-relaxed">
+                    Integrated with Citizen Dashboard reward tiers: Neighborhood Guardian, First Responder, and Clean City Champion.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {activeNav === "announcements" && (
+              <div className="space-y-6">
+                <h1 className="text-2xl font-extrabold text-slate-900">Public Announcements</h1>
+                <p className="text-xs sm:text-sm text-slate-500 -mt-4">
+                  Broadcast notices and public alerts to citizens.
+                </p>
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs text-sm">
+                  <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Megaphone className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900">Broadcast Dispatch Console</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">System notification feed connected to real-time mobile app.</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-4">
+                    All notifications dispatched automatically alert citizens when status updates occur on their registered reports.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {activeNav === "settings" && (
+              <div className="space-y-6">
+                <h1 className="text-2xl font-extrabold text-slate-900">Portal Settings</h1>
+                <p className="text-xs sm:text-sm text-slate-500 -mt-4">
+                  Configure administrative parameters and security preferences.
+                </p>
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4 text-xs">
+                  <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                    <div>
+                      <p className="font-bold text-slate-900">Backend Server API</p>
+                      <p className="text-slate-400 font-mono mt-0.5">{API_BASE_URL}</p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold rounded-full">
+                      Online & Connected
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                    <div>
+                      <p className="font-bold text-slate-900">Admin Account</p>
+                      <p className="text-slate-500 mt-0.5">{user?.email}</p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="px-3 py-1.5 bg-rose-50 text-rose-700 font-bold rounded-lg border border-rose-200 hover:bg-rose-100"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
-      </main>
 
-      {/* ======================================================
-          COMPLAINT MODAL
-      ====================================================== */}
+      {/* ============================================================ */}
+      {/* 3. COMPLAINT DETAILS VIEW / MODAL (Matches Screen 4) */}
+      {/* ============================================================ */}
+      {selectedComplaint && (
+        <div
+          className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={closeComplaint}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header: Back button + Code (Screen 4) */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
+              <button
+                onClick={closeComplaint}
+                className="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1.5"
+              >
+                ← Back to Complaints
+              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold text-slate-400">
+                  #{selectedComplaint.complaint_code || selectedComplaint.id}
+                </span>
+                <button
+                  onClick={closeComplaint}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
-          {showAddWorkerModal && (
-        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div className="p-6 space-y-6">
+              {/* Title, Badge & Location Row (Screen 4) */}
               <div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  Add New Worker
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Create a worker login and worker profile.
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-extrabold text-slate-900">{selectedComplaint.title}</h2>
+                  {getStatusBadge(selectedComplaint.status)}
+                </div>
+                <p className="text-xs text-slate-500 flex items-center gap-2 mt-1.5">
+                  <span className="font-semibold text-slate-700">
+                    {selectedComplaint.categories?.name || "General"}
+                  </span>
+                  •
+                  <span>{selectedComplaint.address || "Sector field location"}</span>
+                  •
+                  <span>{formatDate(selectedComplaint.created_at)}</span>
                 </p>
               </div>
 
+              {/* Main Content Layout (Screen 4: Left photo + Right Info box) */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                {/* Photo & Description (3 cols) */}
+                <div className="md:col-span-3 space-y-4">
+                  <img
+                    src={
+                      selectedComplaint.photo_url ||
+                      getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                    }
+                    alt={selectedComplaint.title}
+                    className="w-full h-56 rounded-2xl object-cover border border-slate-200 shadow-2xs"
+                  />
+
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Description
+                    </h4>
+                    <p className="text-xs sm:text-sm text-slate-700 bg-slate-50 p-3.5 rounded-2xl border border-slate-100 leading-relaxed whitespace-pre-wrap">
+                      {selectedComplaint.description}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Complaint Info Box (2 cols, Screen 4) */}
+                <div className="md:col-span-2 space-y-4">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs space-y-3.5">
+                    <h4 className="font-bold text-slate-900 border-b border-slate-200 pb-2">
+                      Complaint Info
+                    </h4>
+
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Citizen ID</span>
+                      <span className="font-bold text-slate-800 font-mono mt-0.5 block truncate">
+                        {selectedComplaint.citizen_id || "Verified Resident"}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Category</span>
+                      <span className="font-bold text-slate-800 mt-0.5 block">
+                        {selectedComplaint.categories?.name || "Civic Amenity"}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Priority</span>
+                      <span className="font-bold text-rose-600 mt-0.5 block">
+                        {selectedComplaint.priority || "Normal"}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Location</span>
+                      <span className="font-medium text-slate-700 mt-0.5 block">
+                        {selectedComplaint.address || "Sector Coordinates"}
+                      </span>
+                      {selectedComplaint.latitude && selectedComplaint.longitude && (
+                        <a
+                          href={`https://www.google.com/maps?q=${selectedComplaint.latitude},${selectedComplaint.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] font-bold text-blue-600 hover:underline mt-1 block"
+                        >
+                          View in Google Maps →
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Box: Assign to Worker & Status Update (Screen 4) */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                <h4 className="font-bold text-sm text-slate-900">Action & Assignment Controls</h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Assign to Worker
+                    </label>
+                    <select
+                      value={detailSelectedWorker}
+                      onChange={(e) => setDetailSelectedWorker(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select Worker</option>
+                      {workers.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.worker_code} - {w.users?.name || "Worker"} ({w.department})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Complaint Status
+                    </label>
+                    <select
+                      value={detailSelectedStatus}
+                      onChange={(e) => setDetailSelectedStatus(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Submitted">Submitted</option>
+                      <option value="Verified">Verified</option>
+                      <option value="Assigned">Assigned</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Resolved">Resolved</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Update Remarks (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={detailRemarks}
+                    onChange={(e) => setDetailRemarks(e.target.value)}
+                    placeholder="Provide admin remarks or instruction for the field worker..."
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  {!selectedComplaint.verified_at ? (
+                    <button
+                      onClick={() => verifyComplaint(selectedComplaint.id)}
+                      disabled={verifyingId === selectedComplaint.id}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {verifyingId === selectedComplaint.id ? "Verifying..." : "Verify Complaint"}
+                    </button>
+                  ) : (
+                    <span className="text-xs font-semibold text-purple-700 bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5" /> Verified by Admin
+                    </span>
+                  )}
+
+                  <button
+                    onClick={updateComplaintStatusAndWorker}
+                    disabled={updatingStatusId === selectedComplaint.id}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        updatingStatusId === selectedComplaint.id ? "animate-spin" : ""
+                      }`}
+                    />
+                    Update Changes
+                  </button>
+                </div>
+              </div>
+
+              {/* Status History / Lifecycle Audit Trail */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Status History & Audit Trail
+                  </h4>
+                  <button
+                    onClick={() => loadComplaintHistory(selectedComplaint.id)}
+                    disabled={historyLoading}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${historyLoading ? "animate-spin" : ""}`} />
+                    Refresh Trail
+                  </button>
+                </div>
+
+                {historyLoading ? (
+                  <p className="text-xs text-slate-400 py-3">Loading history...</p>
+                ) : statusHistory.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3">No previous status updates recorded.</p>
+                ) : (
+                  <div className="space-y-3 relative pl-6 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                    {statusHistory.map((item, idx) => (
+                      <div key={item.id || idx} className="relative text-xs">
+                        <span className="absolute -left-6 top-1 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white shadow-xs" />
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-slate-800">
+                              Status: {item.new_status}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {formatDateTime(item.created_at)}
+                            </span>
+                          </div>
+                          {item.remarks && (
+                            <p className="text-slate-600 mt-1 text-xs">{item.remarks}</p>
+                          )}
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            Changed by: {item.changed_by || "System"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex justify-end">
               <button
-                type="button"
-                onClick={closeAddWorkerModal}
-                disabled={addingWorker}
-                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                onClick={closeComplaint}
+                className="px-5 py-2 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-white transition"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 4. ADD WORKER MODAL (Preserved Existing Functionality) */}
+      {/* ============================================================ */}
+      {showAddWorkerModal && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 backdrop-blur-xs"
+          onClick={() => !addingWorker && setShowAddWorkerModal(false)}
+        >
+          <div
+            className="w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Add New Worker</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Create a municipal field worker profile and credentials.
+                </p>
+              </div>
+              <button
+                onClick={() => !addingWorker && setShowAddWorkerModal(false)}
+                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={createWorker} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={createWorker} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Full Name *
                   </label>
                   <input
                     type="text"
                     value={workerForm.name}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, name: e.target.value }))
                     }
-                    placeholder="e.g. Amit Sharma"
-                    className="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. Ramesh Patil"
+                    className="w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Email *
                   </label>
                   <input
                     type="email"
                     value={workerForm.email}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        email: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, email: e.target.value }))
                     }
                     placeholder="worker@smartcity.local"
-                    className="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Phone
                   </label>
                   <input
                     type="tel"
                     value={workerForm.phone}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        phone: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, phone: e.target.value }))
                     }
                     placeholder="9876543210"
-                    className="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Password *
                   </label>
                   <input
                     type="password"
                     value={workerForm.password}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        password: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, password: e.target.value }))
                     }
-                    placeholder="Minimum 8 characters"
+                    placeholder="Min 8 characters"
                     minLength={8}
-                    className="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Department *
                   </label>
                   <select
                     value={workerForm.department}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        department: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, department: e.target.value }))
                     }
-                    className="w-full px-3 py-2.5 border rounded-xl bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-xs border rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
                     required
                   >
                     <option value="">Select department</option>
@@ -3757,524 +2692,53 @@ function AdminDashboard() {
                     <option value="Roads & Transport">Roads & Transport</option>
                     <option value="Waste Management">Waste Management</option>
                     <option value="Sanitation">Sanitation</option>
-                    <option value="Drainage & Sewerage">Drainage & Sewerage</option>
                     <option value="Parks & Gardens">Parks & Gardens</option>
-                    <option value="Health & Public Safety">Health & Public Safety</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Specialization
                   </label>
                   <input
                     type="text"
                     value={workerForm.specialization}
-                    onChange={(event) =>
-                      setWorkerForm((current) => ({
-                        ...current,
-                        specialization: event.target.value,
-                      }))
+                    onChange={(e) =>
+                      setWorkerForm((cur) => ({ ...cur, specialization: e.target.value }))
                     }
-                    placeholder="e.g. Electrical Maintenance"
-                    className="w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. Pipeline Repair"
+                    className="w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="mt-5 bg-blue-50 border border-blue-100 rounded-xl p-4">
-                <p className="text-sm text-blue-800">
-                  The new account will be created with the <strong>Worker</strong> role,
-                  and the worker will initially be marked <strong>Active</strong> and
-                  <strong> Available</strong>.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={closeAddWorkerModal}
+                  onClick={() => setShowAddWorkerModal(false)}
                   disabled={addingWorker}
-                  className="px-4 py-2.5 border rounded-xl bg-white hover:bg-gray-50 disabled:opacity-50"
+                  className="px-4 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50"
                 >
                   Cancel
                 </button>
-
                 <button
                   type="submit"
                   disabled={addingWorker}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
+                  className="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5"
                 >
                   {addingWorker ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Creating...
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Creating...
                     </>
                   ) : (
                     <>
-                      <UserPlus className="w-4 h-4" />
-                      Create Worker
+                      <Plus className="w-3.5 h-3.5" /> Create Worker
                     </>
                   )}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-  {selectedComplaint && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={closeComplaint}
-        >
-          <div
-            className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) =>
-              e.stopPropagation()
-            }
-          >
-            <div className="p-5 border-b flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <h2 className="text-xl font-bold">
-                  Complaint Details
-                </h2>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  {
-                    selectedComplaint.complaint_code
-                  }
-                </p>
-              </div>
-
-              <button
-                onClick={closeComplaint}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-5">
-              {/* BASIC DETAILS */}
-
-              <div>
-                <p className="text-sm text-gray-500">
-                  Title
-                </p>
-
-                <p className="font-semibold mt-1">
-                  {selectedComplaint.title}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-500">
-                  Description
-                </p>
-
-                <p className="mt-1 text-gray-700 whitespace-pre-wrap">
-                  {
-                    selectedComplaint.description
-                  }
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Category
-                  </p>
-
-                  <p className="font-medium mt-1">
-                    {selectedComplaint
-                      .categories?.name ||
-                      "Not specified"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Status
-                  </p>
-
-                  <span
-                    className={`inline-block mt-1 px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusClass(
-                      selectedComplaint.status
-                    )}`}
-                  >
-                    {
-                      selectedComplaint.status
-                    }
-                  </span>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Priority
-                  </p>
-
-                  <p className="font-medium mt-1">
-                    {
-                      selectedComplaint.priority
-                    }
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Created
-                  </p>
-
-                  <p className="font-medium mt-1">
-                    {formatDate(
-                      selectedComplaint.created_at
-                    )}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Assigned Worker
-                  </p>
-
-                  <p className="font-medium mt-1">
-                    {getWorkerName(
-                      selectedComplaint
-                    )}
-                  </p>
-                </div>
-
-                {selectedComplaint.resolved_at && (
-                  <div>
-                    <p className="text-sm text-gray-500">
-                      Resolved
-                    </p>
-
-                    <p className="font-medium mt-1">
-                      {formatDate(
-                        selectedComplaint.resolved_at
-                      )}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* VERIFICATION */}
-
-              <div className="border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-semibold">
-                      Verification
-                    </p>
-
-                    <p className="text-xs text-gray-500">
-                      Admin verification status
-                    </p>
-                  </div>
-
-                  {selectedComplaint.verified_at ? (
-                    <span className="px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                      Verified
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">
-                      Pending
-                    </span>
-                  )}
-                </div>
-
-                {selectedComplaint.verified_at && (
-                  <p className="text-xs text-gray-500">
-                    Verified:{" "}
-                    {formatDate(
-                      selectedComplaint.verified_at
-                    )}
-                  </p>
-                )}
-
-                {!selectedComplaint.verified_at && (
-                  <button
-                    onClick={() =>
-                      verifyComplaint(
-                        selectedComplaint.id
-                      )
-                    }
-                    disabled={
-                      verifyingId ===
-                      selectedComplaint.id
-                    }
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {verifyingId ===
-                    selectedComplaint.id
-                      ? "Verifying..."
-                      : "Verify Complaint"}
-                  </button>
-                )}
-              </div>
-
-              {/* WORKER ASSIGNMENT */}
-
-              <div className="border rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="w-5 h-5 text-blue-600" />
-
-                  <div>
-                    <p className="font-semibold">
-                      Assign Worker
-                    </p>
-
-                    <p className="text-xs text-gray-500">
-                      Select a worker responsible for this
-                      complaint.
-                    </p>
-                  </div>
-                </div>
-
-                <select
-                  value={
-                    selectedComplaint.assigned_worker_id ||
-                    ""
-                  }
-                  onChange={(e) =>
-                    assignWorker(
-                      selectedComplaint.id,
-                      e.target.value
-                    )
-                  }
-                  disabled={
-                    assigningId ===
-                    selectedComplaint.id
-                  }
-                  className="w-full border rounded-lg px-4 py-3 bg-white"
-                >
-                  <option value="">
-                    Select Worker
-                  </option>
-
-                  {workers.map((worker) => (
-                    <option
-                      key={worker.id}
-                      value={worker.id}
-                    >
-                      {worker.worker_code} -{" "}
-                      {worker.users?.name ||
-                        "Worker"}{" "}
-                      - {worker.department}
-                    </option>
-                  ))}
-                </select>
-
-                {assigningId ===
-                  selectedComplaint.id && (
-                  <p className="text-sm text-blue-600 mt-2">
-                    Assigning complaint...
-                  </p>
-                )}
-              </div>
-
-              {/* STATUS HISTORY */}
-
-              <div className="border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="font-semibold">
-                      Status History
-                    </p>
-
-                    <p className="text-xs text-gray-500">
-                      Complete complaint lifecycle
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      loadComplaintHistory(
-                        selectedComplaint.id
-                      )
-                    }
-                    disabled={historyLoading}
-                    className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      className={`w-4 h-4 ${
-                        historyLoading
-                          ? "animate-spin"
-                          : ""
-                      }`}
-                    />
-
-                    Refresh
-                  </button>
-                </div>
-
-                {historyError && (
-                  <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
-                    {historyError}
-                  </div>
-                )}
-
-                {historyLoading ? (
-                  <div className="py-8 text-center">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
-
-                    <p className="text-sm text-gray-500">
-                      Loading status history...
-                    </p>
-                  </div>
-                ) : statusHistory.length ===
-                  0 ? (
-                  <div className="py-8 text-center">
-                    <Clock3 className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-
-                    <p className="text-sm text-gray-500">
-                      No status history available.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    {statusHistory.map(
-                      (
-                        historyItem,
-                        index
-                      ) => (
-                        <div
-                          key={
-                            historyItem.id ||
-                            `${historyItem.created_at}-${index}`
-                          }
-                          className="relative flex gap-4"
-                        >
-                          {index <
-                            statusHistory.length -
-                              1 && (
-                            <div className="absolute left-[11px] top-7 bottom-0 w-px bg-gray-200" />
-                          )}
-
-                          <div
-                            className={`relative z-10 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${getStatusDotClass(
-                              historyItem.new_status
-                            )}`}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                          </div>
-
-                          <div className="pb-6 flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusClass(
-                                  historyItem.new_status
-                                )}`}
-                              >
-                                {
-                                  historyItem.new_status
-                                }
-                              </span>
-
-                              {historyItem.old_status && (
-                                <span className="text-xs text-gray-400">
-                                  {
-                                    historyItem.old_status
-                                  }{" "}
-                                  →{" "}
-                                  {
-                                    historyItem.new_status
-                                  }
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-xs text-gray-500 mt-2">
-                              {formatDate(
-                                historyItem.created_at
-                              )}
-                            </p>
-
-                            {historyItem.remarks && (
-                              <div className="mt-2 bg-gray-50 border rounded-lg p-3">
-                                <p className="text-xs text-gray-500 mb-1">
-                                  Remarks
-                                </p>
-
-                                <p className="text-sm text-gray-700">
-                                  {
-                                    historyItem.remarks
-                                  }
-                                </p>
-                              </div>
-                            )}
-
-                            <p className="text-xs text-gray-400 mt-2">
-                              Changed by:{" "}
-                              {getHistoryActor(
-                                historyItem
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* LOCATION */}
-
-              {selectedComplaint.latitude !=
-                null &&
-                selectedComplaint.longitude !=
-                  null && (
-                  <div className="border rounded-xl p-4">
-                    <p className="font-semibold mb-2">
-                      Complaint Location
-                    </p>
-
-                    {selectedComplaint.address && (
-                      <p className="text-sm text-gray-600 mb-2">
-                        Address:{" "}
-                        {
-                          selectedComplaint.address
-                        }
-                      </p>
-                    )}
-
-                    <p className="text-sm text-gray-600">
-                      Latitude:{" "}
-                      {
-                        selectedComplaint.latitude
-                      }
-                    </p>
-
-                    <p className="text-sm text-gray-600">
-                      Longitude:{" "}
-                      {
-                        selectedComplaint.longitude
-                      }
-                    </p>
-
-                    <a
-                      href={`https://www.google.com/maps?q=${selectedComplaint.latitude},${selectedComplaint.longitude}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-block mt-3 text-sm text-blue-600 hover:underline"
-                    >
-                      Open in Google Maps
-                    </a>
-                  </div>
-                )}
-            </div>
-
-            <div className="p-5 border-t flex justify-end">
-              <button
-                onClick={closeComplaint}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
-              >
-                Close
-              </button>
-            </div>
           </div>
         </div>
       )}
