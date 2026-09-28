@@ -1085,10 +1085,11 @@ function CitizenDashboard() {
       return;
     }
 
-    if (currentUser.role !== "citizen") {
-      if (currentUser.role === "worker") {
+    const role = (currentUser.role || "").toLowerCase().trim();
+    if (role !== "citizen") {
+      if (role === "worker") {
         navigate("/worker/dashboard", { replace: true });
-      } else if (currentUser.role === "admin") {
+      } else if (role === "admin") {
         navigate("/admin/dashboard", { replace: true });
       } else {
         logout();

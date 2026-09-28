@@ -147,8 +147,15 @@ function WorkerDashboard() {
 
     try {
       const parsedUser = JSON.parse(savedUser);
-      if (parsedUser.role !== "worker") {
-        navigate("/login", { replace: true });
+      const role = (parsedUser.role || "").toLowerCase().trim();
+      if (role !== "worker") {
+        if (role === "citizen") {
+          navigate("/citizen/dashboard", { replace: true });
+        } else if (role === "admin") {
+          navigate("/admin/dashboard", { replace: true });
+        } else {
+          navigate("/login", { replace: true });
+        }
         return;
       }
 

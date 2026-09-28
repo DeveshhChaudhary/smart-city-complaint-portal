@@ -80,8 +80,10 @@ function MapCenterController({ location }) {
 // LOCATION PICKER
 // ============================================================
 
-function LocationPicker({ onLocationSelect }) {
-  const [selectedLocation, setSelectedLocation] = useState(null);
+function LocationPicker({ onLocationSelect, onChange, value, initialLocation }) {
+  const [selectedLocation, setSelectedLocation] = useState(
+    value || initialLocation || null
+  );
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState("");
 
@@ -90,6 +92,22 @@ function LocationPicker({ onLocationSelect }) {
     DEFAULT_LOCATION.longitude,
   ]);
 
+  // Synchronize internal state if value prop is controlled
+  useEffect(() => {
+    if (value !== undefined) {
+      setSelectedLocation(value);
+      if (
+        value &&
+        value.latitude != null &&
+        value.longitude != null &&
+        !isNaN(Number(value.latitude)) &&
+        !isNaN(Number(value.longitude))
+      ) {
+        setMapCenter([Number(value.latitude), Number(value.longitude)]);
+      }
+    }
+  }, [value]);
+
   // ============================================================
   // SELECT LOCATION
   // ============================================================
@@ -97,8 +115,23 @@ function LocationPicker({ onLocationSelect }) {
   const selectLocation = (location) => {
     setSelectedLocation(location);
     setLocationError("");
+    setLocationLoading(false); // Stop loading indicator on any location selection
 
-    onLocationSelect(location);
+    if (typeof onLocationSelect === "function") {
+      try {
+        onLocationSelect(location);
+      } catch (err) {
+        console.error("onLocationSelect callback error:", err);
+      }
+    }
+
+    if (typeof onChange === "function") {
+      try {
+        onChange(location);
+      } catch (err) {
+        console.error("onChange callback error:", err);
+      }
+    }
   };
 
   // ============================================================
@@ -112,6 +145,7 @@ function LocationPicker({ onLocationSelect }) {
       setLocationError(
         "Geolocation is not supported by this browser."
       );
+      setLocationLoading(false);
       return;
     }
 
@@ -119,26 +153,30 @@ function LocationPicker({ onLocationSelect }) {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const latitude = Number(
-          position.coords.latitude.toFixed(6)
-        );
+        try {
+          const latitude = Number(
+            position.coords.latitude.toFixed(6)
+          );
 
-        const longitude = Number(
-          position.coords.longitude.toFixed(6)
-        );
+          const longitude = Number(
+            position.coords.longitude.toFixed(6)
+          );
 
-        const location = {
-          latitude,
-          longitude,
-        };
+          const location = {
+            latitude,
+            longitude,
+          };
 
-        console.log("Current location:", location);
+          console.log("Current location:", location);
 
-        setMapCenter([latitude, longitude]);
+          setMapCenter([latitude, longitude]);
 
-        selectLocation(location);
-
-        setLocationLoading(false);
+          selectLocation(location);
+        } catch (err) {
+          console.error("Error setting current location:", err);
+        } finally {
+          setLocationLoading(false);
+        }
       },
       (error) => {
         console.error("Geolocation error:", error);

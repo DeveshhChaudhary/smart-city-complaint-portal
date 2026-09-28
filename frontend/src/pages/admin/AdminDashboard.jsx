@@ -173,8 +173,17 @@ function AdminDashboard() {
   const navigate = useNavigate();
 
   // Authentication & User state
-  const [token, setToken] = useState("");
-  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(
+    () => localStorage.getItem("access_token") || ""
+  );
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem("user");
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Data states
   const [complaints, setComplaints] = useState([]);
@@ -375,11 +384,12 @@ function AdminDashboard() {
     }
   };
 
-  const loadRewardsData = async (token = adminToken) => {
-    if (!token) return;
+  const loadRewardsData = async (authToken = token) => {
+    const activeToken = authToken || token || localStorage.getItem("access_token");
+    if (!activeToken) return;
     try {
       setRewardsLoading(true);
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = { Authorization: `Bearer ${activeToken}` };
       const [overviewRes, catalogRes, claimsRes, ledgerRes, badgesRes, leaderboardRes, analyticsRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/admin/rewards/overview`, { headers }).catch(() => null),
         axios.get(`${API_BASE_URL}/api/admin/rewards/catalog`, { headers }).catch(() => null),
@@ -405,10 +415,10 @@ function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeNav === "rewards" && adminToken) {
-      loadRewardsData(adminToken);
+    if (activeNav === "rewards" && token) {
+      loadRewardsData(token);
     }
-  }, [activeNav, adminToken, leaderboardPeriod]);
+  }, [activeNav, token, leaderboardPeriod]);
 
   // Catalog filtered and sorted
   const filteredCatalog = useMemo(() => {
@@ -565,7 +575,7 @@ function AdminDashboard() {
           popular: rewardFormData.popular,
           status: rewardFormData.status,
         },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast(res.data.message || "Reward added successfully!", "success");
@@ -603,7 +613,7 @@ function AdminDashboard() {
           popular: rewardFormData.popular,
           status: rewardFormData.status,
         },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast(res.data.message || "Reward updated successfully!", "success");
@@ -624,7 +634,7 @@ function AdminDashboard() {
       const res = await axios.patch(
         `${API_BASE_URL}/api/admin/rewards/catalog/${item.id}`,
         { status: newStatus },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast(`Reward '${item.name}' marked as ${newStatus}.`, "success");
@@ -641,7 +651,7 @@ function AdminDashboard() {
       const res = await axios.patch(
         `${API_BASE_URL}/api/admin/rewards/claims/${claimId}`,
         { status: newStatus },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast(res.data.message || `Claim status updated to ${newStatus}.`, "success");
@@ -730,11 +740,12 @@ function AdminDashboard() {
   };
 
   // Load announcements data
-  const loadAnnouncementsData = async (token = adminToken) => {
-    if (!token) return;
+  const loadAnnouncementsData = async (authToken = token) => {
+    const activeToken = authToken || token || localStorage.getItem("access_token");
+    if (!activeToken) return;
     try {
       setAnnouncementsLoading(true);
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = { Authorization: `Bearer ${activeToken}` };
       const [overviewRes, historyRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/admin/announcements/overview`, { headers }).catch(() => null),
         axios.get(`${API_BASE_URL}/api/admin/announcements`, { headers }).catch(() => null),
@@ -750,14 +761,14 @@ function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeNav === "announcements" && adminToken) {
-      loadAnnouncementsData(adminToken);
+    if (activeNav === "announcements" && token) {
+      loadAnnouncementsData(token);
     }
-  }, [activeNav, adminToken]);
+  }, [activeNav, token]);
 
   // Fetch audience preview whenever audience parameters change
   useEffect(() => {
-    if (!adminToken || activeNav !== "announcements") return;
+    if (!token || activeNav !== "announcements") return;
     const fetchPreview = async () => {
       try {
         setAudiencePreviewLoading(true);
@@ -772,7 +783,7 @@ function AdminDashboard() {
         }
         const res = await axios.get(
           `${API_BASE_URL}/api/admin/announcements/audience-preview?${params.toString()}`,
-          { headers: { Authorization: `Bearer ${adminToken}` } }
+          { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
         );
         if (res.data?.success) {
           setAudiencePreview(res.data);
@@ -789,7 +800,7 @@ function AdminDashboard() {
     announcementForm.audience,
     announcementForm.department,
     announcementForm.user_id,
-    adminToken,
+    token,
     activeNav,
   ]);
 
@@ -825,7 +836,7 @@ function AdminDashboard() {
           department: announcementForm.department || null,
           user_id: announcementForm.user_id || null,
         },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
 
       if (res.data?.success) {
@@ -856,7 +867,7 @@ function AdminDashboard() {
       setDetailsLoading(true);
       const res = await axios.get(
         `${API_BASE_URL}/api/admin/announcements/${broadcastId}`,
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         setSelectedAnnouncementForDetails(res.data.announcement);
@@ -874,7 +885,7 @@ function AdminDashboard() {
       setDeletingAnnouncement(true);
       const res = await axios.delete(
         `${API_BASE_URL}/api/admin/announcements/${broadcastId}`,
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast(res.data.message || "Broadcast deleted successfully.", "success");
@@ -980,11 +991,12 @@ function AdminDashboard() {
   const [secPasswordLoading, setSecPasswordLoading] = useState(false);
 
   // Load Settings Data (Overview, Categories, Audit Stream)
-  const loadSettingsData = async (token = adminToken) => {
-    if (!token) return;
+  const loadSettingsData = async (authToken = token) => {
+    const activeToken = authToken || token || localStorage.getItem("access_token");
+    if (!activeToken) return;
     try {
       setSettingsLoading(true);
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = { Authorization: `Bearer ${activeToken}` };
       const [overviewRes, catsRes, auditRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/admin/settings/overview`, { headers }).catch(() => null),
         axios.get(`${API_BASE_URL}/api/admin/categories`, { headers }).catch(() => null),
@@ -1002,10 +1014,10 @@ function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeNav === "settings" && adminToken) {
-      loadSettingsData(adminToken);
+    if (activeNav === "settings" && token) {
+      loadSettingsData(token);
     }
-  }, [activeNav, adminToken]);
+  }, [activeNav, token]);
 
   // Open Category Create Modal
   const handleOpenAddCategory = () => {
@@ -1041,7 +1053,7 @@ function AdminDashboard() {
 
     try {
       setSavingCategory(true);
-      const headers = { Authorization: `Bearer ${adminToken}` };
+      const headers = { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` };
       if (categoryModalMode === "create") {
         const res = await axios.post(
           `${API_BASE_URL}/api/admin/categories`,
@@ -1083,7 +1095,7 @@ function AdminDashboard() {
   // Toggle Category Active Status
   const handleToggleCategoryActive = async (cat) => {
     try {
-      const headers = { Authorization: `Bearer ${adminToken}` };
+      const headers = { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` };
       const newStatus = !cat.is_active;
       // Optimistic update
       setSettingsCategories((prev) =>
@@ -1132,7 +1144,7 @@ function AdminDashboard() {
           current_password: secCurrentPassword,
           new_password: secNewPassword,
         },
-        { headers: { Authorization: `Bearer ${adminToken}` } }
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
       );
       if (res.data?.success) {
         showToast("Password updated successfully!", "success");
@@ -1186,8 +1198,15 @@ function AdminDashboard() {
 
     try {
       const parsedUser = JSON.parse(savedUser);
-      if (parsedUser.role !== "admin") {
-        navigate("/login", { replace: true });
+      const role = (parsedUser.role || "").toLowerCase().trim();
+      if (role !== "admin") {
+        if (role === "citizen") {
+          navigate("/citizen/dashboard", { replace: true });
+        } else if (role === "worker") {
+          navigate("/worker/dashboard", { replace: true });
+        } else {
+          navigate("/login", { replace: true });
+        }
         return;
       }
 

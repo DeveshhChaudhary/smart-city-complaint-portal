@@ -35,6 +35,7 @@ function CreateComplaint() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [photo, setPhoto] = useState(null);
   const [location, setLocation] = useState(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -68,10 +69,85 @@ function CreateComplaint() {
     }));
   };
 
+  const handleLocationSelect = async (selectedLoc) => {
+    if (
+      !selectedLoc ||
+      selectedLoc.latitude === null ||
+      selectedLoc.latitude === undefined ||
+      selectedLoc.longitude === null ||
+      selectedLoc.longitude === undefined
+    ) {
+      setLocation(null);
+      return;
+    }
+
+    const lat = Number(selectedLoc.latitude);
+    const lng = Number(selectedLoc.longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      setLocation(null);
+      return;
+    }
+
+    // Immediately establish canonical location state so user can submit right away
+    const updatedLocation = {
+      latitude: lat,
+      longitude: lng,
+      address: selectedLoc.address || "",
+    };
+    setLocation(updatedLocation);
+
+    // Non-blocking fail-safe reverse geocoding if address not yet set
+    if (!selectedLoc.address) {
+      try {
+        setIsGeocoding(true);
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
+          {
+            headers: {
+              "Accept-Language": "en",
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.display_name) {
+            setLocation((prev) => {
+              if (
+                prev &&
+                Number(prev.latitude) === lat &&
+                Number(prev.longitude) === lng
+              ) {
+                return {
+                  ...prev,
+                  address: data.display_name,
+                };
+              }
+              return prev;
+            });
+          }
+        }
+      } catch (geocodeErr) {
+        console.warn("Reverse geocode lookup skipped or failed:", geocodeErr);
+      } finally {
+        setIsGeocoding(false);
+      }
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (!location) {
+    const hasValidCoords =
+      location &&
+      location.latitude !== null &&
+      location.latitude !== undefined &&
+      location.longitude !== null &&
+      location.longitude !== undefined &&
+      !isNaN(Number(location.latitude)) &&
+      !isNaN(Number(location.longitude));
+
+    if (!hasValidCoords) {
       alert("Please select the problem location on the map.");
       return;
     }
@@ -108,7 +184,7 @@ function CreateComplaint() {
         photo_url: photo ? photo.name : null,
         latitude: Number(location.latitude),
         longitude: Number(location.longitude),
-        address: null,
+        address: location.address ? location.address.trim() : null,
         priority: "Normal",
       };
 
@@ -293,28 +369,46 @@ function CreateComplaint() {
               </p>
             </div>
 
-            <LocationPicker onChange={setLocation} />
+            <LocationPicker
+              value={location}
+              onLocationSelect={handleLocationSelect}
+              onChange={handleLocationSelect}
+            />
           </section>
 
           {/* Selected Location */}
-          {location && (
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
-              <div className="flex items-start gap-3">
-                <MapPin size={22} className="mt-0.5 shrink-0 text-blue-600" />
-                <div>
-                  <h3 className="font-semibold text-blue-900">
-                    Location Selected
-                  </h3>
-                  <p className="mt-1 text-sm text-blue-700">
-                    Latitude: {Number(location.latitude).toFixed(6)}
-                  </p>
-                  <p className="text-sm text-blue-700">
-                    Longitude: {Number(location.longitude).toFixed(6)}
-                  </p>
+          {location &&
+            location.latitude !== null &&
+            location.latitude !== undefined &&
+            location.longitude !== null &&
+            location.longitude !== undefined && (
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+                <div className="flex items-start gap-3">
+                  <MapPin size={22} className="mt-0.5 shrink-0 text-blue-600" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900">
+                      Location Selected
+                    </h3>
+                    <p className="mt-1 text-sm text-blue-700">
+                      Latitude: {Number(location.latitude).toFixed(6)}
+                    </p>
+                    <p className="text-sm text-blue-700">
+                      Longitude: {Number(location.longitude).toFixed(6)}
+                    </p>
+                    {isGeocoding && !location.address && (
+                      <p className="mt-1 text-xs text-blue-500 italic">
+                        Resolving address...
+                      </p>
+                    )}
+                    {location.address && (
+                      <p className="mt-1 text-xs text-blue-800">
+                        Address: {location.address}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Submit */}
           <div className="flex justify-end">

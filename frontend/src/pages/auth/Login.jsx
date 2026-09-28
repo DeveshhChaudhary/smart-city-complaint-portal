@@ -78,14 +78,20 @@ function Login() {
         return;
       }
 
+      // Clear previous session to prevent stale role hijacking
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("user");
+
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      if (data.user.role === "citizen") {
+      const userRole = (data.user.role || "").toLowerCase().trim();
+
+      if (userRole === "citizen") {
         navigate("/citizen/dashboard", { replace: true });
-      } else if (data.user.role === "worker") {
+      } else if (userRole === "worker") {
         navigate("/worker/dashboard", { replace: true });
-      } else if (data.user.role === "admin") {
+      } else if (userRole === "admin") {
         navigate("/admin/dashboard", { replace: true });
       } else {
         setError("Invalid user role.");
