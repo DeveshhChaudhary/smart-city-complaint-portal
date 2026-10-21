@@ -106,6 +106,12 @@ import {
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
 import smartCityLogo from "../../assets/smart-city-logo.png";
+import {
+  getFallbackImage,
+  isValidImageUrl,
+  getComplaintImage,
+  handleImageError,
+} from "../../utils/imageUtils";
 
 const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 
@@ -113,24 +119,6 @@ const generateWorkerCode = () => {
   const timestamp = Date.now().toString().slice(-6);
   const random = Math.floor(100 + Math.random() * 900);
   return `WRK-${timestamp}${random}`;
-};
-
-// Fallback images based on category/title
-const getFallbackImage = (categoryName = "", title = "") => {
-  const text = `${categoryName} ${title}`.toLowerCase();
-  if (text.includes("road") || text.includes("pothole")) {
-    return "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("light") || text.includes("lamp") || text.includes("electric")) {
-    return "https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("garbage") || text.includes("waste") || text.includes("trash") || text.includes("clean")) {
-    return "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("water") || text.includes("drain") || text.includes("leak") || text.includes("pipe")) {
-    return "https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80";
-  }
-  return "https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=600&auto=format&fit=crop&q=80";
 };
 
 function MapBoundsController({ complaints }) {
@@ -690,6 +678,7 @@ function AdminDashboard() {
     sample_recipients: [],
   });
   const [audiencePreviewLoading, setAudiencePreviewLoading] = useState(false);
+  const [recipientUsersLoading, setRecipientUsersLoading] = useState(false);
 
   // Announcement Form State
   const [announcementForm, setAnnouncementForm] = useState({
@@ -769,6 +758,17 @@ function AdminDashboard() {
   // Fetch audience preview whenever audience parameters change
   useEffect(() => {
     if (!token || activeNav !== "announcements") return;
+
+    if (announcementForm.audience === "specific_user" && !announcementForm.user_id) {
+      setAudiencePreview({
+        recipient_count: 0,
+        audience_label: "Select a recipient user below",
+        sample_recipients: [],
+      });
+      setAudiencePreviewLoading(false);
+      return;
+    }
+
     const fetchPreview = async () => {
       try {
         setAudiencePreviewLoading(true);
@@ -803,6 +803,34 @@ function AdminDashboard() {
     token,
     activeNav,
   ]);
+
+  // Load registered users if targeting a specific user and users list is empty
+  useEffect(() => {
+    if (
+      activeNav === "announcements" &&
+      announcementForm.audience === "specific_user" &&
+      (!managedUsers || managedUsers.length === 0)
+    ) {
+      const fetchUsers = async () => {
+        const activeToken = token || localStorage.getItem("access_token");
+        if (!activeToken) return;
+        try {
+          setRecipientUsersLoading(true);
+          const res = await axios.get(`${API_BASE_URL}/api/admin/users`, {
+            headers: { Authorization: `Bearer ${activeToken}` },
+          });
+          if (res.data?.success && Array.isArray(res.data.users)) {
+            setManagedUsers(res.data.users);
+          }
+        } catch (err) {
+          console.error("Failed to load recipient users:", err);
+        } finally {
+          setRecipientUsersLoading(false);
+        }
+      };
+      fetchUsers();
+    }
+  }, [activeNav, announcementForm.audience, managedUsers, token]);
 
   // Dispatch announcement handler
   const handleDispatchAnnouncement = async () => {
@@ -2668,7 +2696,6 @@ function AdminDashboard() {
     { id: "rewards", label: "Rewards", icon: Award },
     { id: "announcements", label: "Announcements", icon: Megaphone },
     { id: "profile", label: "Admin Profile", icon: UserRound },
-    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   if (loading) {
@@ -3366,7 +3393,8 @@ function AdminDashboard() {
                               <td className="py-3.5 px-3">
                                 <div className="flex items-center gap-3">
                                   <img
-                                    src={item.photo_url || getFallbackImage(item.categories?.name, item.title)}
+                                    src={getComplaintImage(item.photo_url, item.categories?.name, item.title)}
+                                    onError={(e) => handleImageError(e, item.categories?.name, item.title)}
                                     alt=""
                                     className="w-10 h-10 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
                                   />
@@ -5962,21 +5990,40 @@ function AdminDashboard() {
                           {/* Conditional Specific User Dropdown */}
                           {announcementForm.audience === "specific_user" && (
                             <div className="p-3.5 bg-blue-50/60 border border-blue-100 rounded-2xl">
-                              <label className="block text-xs font-bold text-blue-900 mb-1">
-                                Select Recipient User *
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs font-bold text-blue-900">
+                                  Select Recipient User *
+                                </label>
+                                {recipientUsersLoading && (
+                                  <span className="text-[11px] text-blue-600 flex items-center gap-1 font-medium">
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                    Loading accounts...
+                                  </span>
+                                )}
+                              </div>
                               <select
                                 value={announcementForm.user_id}
                                 onChange={(e) => setAnnouncementForm((prev) => ({ ...prev, user_id: e.target.value }))}
+                                disabled={recipientUsersLoading}
                                 className="w-full px-3 py-2 text-xs border border-blue-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white"
                               >
                                 <option value="">-- Choose Registered Citizen or Worker --</option>
-                                {allUsers.filter((u) => u.is_active).map((u) => (
-                                  <option key={u.id} value={u.id}>
-                                    {u.name} ({u.role}) - {u.email}
-                                  </option>
-                                ))}
+                                {Array.isArray(managedUsers) &&
+                                  managedUsers
+                                    .filter((u) => u && u.is_active !== false)
+                                    .map((u) => (
+                                      <option key={u.id} value={u.id}>
+                                        {u.name || "Unnamed User"} ({u.role || "user"}) - {u.email || u.phone || "No contact"}
+                                      </option>
+                                    ))}
                               </select>
+                              {Array.isArray(managedUsers) &&
+                                managedUsers.filter((u) => u && u.is_active !== false).length === 0 &&
+                                !recipientUsersLoading && (
+                                  <p className="text-[11px] text-amber-700 mt-1.5">
+                                    No active user accounts found in the portal directory.
+                                  </p>
+                                )}
                             </div>
                           )}
 
@@ -7765,9 +7812,17 @@ function AdminDashboard() {
                 {/* Photo & Description (3 cols) */}
                 <div className="md:col-span-3 space-y-4">
                   <img
-                    src={
-                      selectedComplaint.photo_url ||
-                      getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                    src={getComplaintImage(
+                      selectedComplaint.photo_url,
+                      selectedComplaint.categories?.name,
+                      selectedComplaint.title
+                    )}
+                    onError={(e) =>
+                      handleImageError(
+                        e,
+                        selectedComplaint.categories?.name,
+                        selectedComplaint.title
+                      )
                     }
                     alt={selectedComplaint.title}
                     className="w-full h-56 rounded-2xl object-cover border border-slate-200 shadow-2xs"
@@ -7874,9 +7929,17 @@ function AdminDashboard() {
                         Before (Citizen Initial Report)
                       </span>
                       <img
-                        src={
-                          selectedComplaint.photo_url ||
-                          getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                        src={getComplaintImage(
+                          selectedComplaint.photo_url,
+                          selectedComplaint.categories?.name,
+                          selectedComplaint.title
+                        )}
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint.categories?.name,
+                            selectedComplaint.title
+                          )
                         }
                         alt="Before Work"
                         className="w-full h-48 rounded-2xl object-cover border border-slate-200 shadow-2xs"
@@ -7888,6 +7951,14 @@ function AdminDashboard() {
                       </span>
                       <img
                         src={complaintEvidence.photo_url}
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint?.categories?.name,
+                            selectedComplaint?.title,
+                            "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&auto=format&fit=crop&q=80"
+                          )
+                        }
                         alt="After Completion Evidence"
                         className="w-full h-48 rounded-2xl object-cover border-2 border-emerald-400 shadow-xs"
                       />

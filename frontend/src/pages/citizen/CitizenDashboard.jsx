@@ -61,6 +61,12 @@ import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from "react-leaf
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
 import smartCityLogo from "../../assets/smart-city-logo.png";
+import {
+  getFallbackImage,
+  isValidImageUrl,
+  getComplaintImage,
+  handleImageError,
+} from "../../utils/imageUtils";
 
 const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 
@@ -2199,15 +2205,12 @@ function CitizenDashboard() {
                       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         {/* Thumbnail */}
                         <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-slate-100 border border-slate-200/80 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {c.photo_url ? (
-                            <img
-                              src={c.photo_url}
-                              alt={c.title}
-                              className="w-full h-full object-cover group-hover:scale-105 transition"
-                            />
-                          ) : (
-                            <Wrench className="w-5 h-5 text-slate-400" />
-                          )}
+                          <img
+                            src={getComplaintImage(c.photo_url, c.categories?.name, c.title)}
+                            alt={c.title}
+                            onError={(e) => handleImageError(e, c.categories?.name, c.title)}
+                            className="w-full h-full object-cover group-hover:scale-105 transition"
+                          />
                         </div>
                         {/* Info */}
                         <div className="min-w-0">
@@ -2370,15 +2373,12 @@ function CitizenDashboard() {
                       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         {/* Thumbnail */}
                         <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-slate-100 border border-slate-200/80 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {c.photo_url ? (
-                            <img
-                              src={c.photo_url}
-                              alt={c.title}
-                              className="w-full h-full object-cover group-hover:scale-105 transition"
-                            />
-                          ) : (
-                            <Wrench className="w-6 h-6 text-slate-400" />
-                          )}
+                          <img
+                            src={getComplaintImage(c.photo_url, c.categories?.name, c.title)}
+                            alt={c.title}
+                            onError={(e) => handleImageError(e, c.categories?.name, c.title)}
+                            className="w-full h-full object-cover group-hover:scale-105 transition"
+                          />
                         </div>
 
                         {/* Title & Metadata */}
@@ -3188,29 +3188,20 @@ function CitizenDashboard() {
                           {getStatusBadge(item.status)}
                         </div>
 
-                        {/* Image Preview if Available */}
-                        {item.photo_url ? (
-                          <div className="w-full h-44 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/70 mb-3.5 relative">
-                            <img
-                              src={item.photo_url}
-                              alt={item.title}
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            />
-                            {item.complaint_code && (
-                              <span className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur text-white text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg shadow-sm">
-                                #{item.complaint_code}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          item.complaint_code && (
-                            <div className="mb-2">
-                              <span className="inline-block bg-slate-100 text-slate-600 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md">
-                                #{item.complaint_code}
-                              </span>
-                            </div>
-                          )
-                        )}
+                        {/* Image Preview / Graceful Fallback */}
+                        <div className="w-full h-44 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200/70 mb-3.5 relative">
+                          <img
+                            src={getComplaintImage(item.photo_url, item.categories?.name || item.category_name, item.title)}
+                            alt={item.title || "Complaint Photo"}
+                            onError={(e) => handleImageError(e, item.categories?.name || item.category_name, item.title)}
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          />
+                          {item.complaint_code && (
+                            <span className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur text-white text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg shadow-sm">
+                              #{item.complaint_code}
+                            </span>
+                          )}
+                        </div>
 
                         {/* Complaint Title */}
                         <h3 className="font-extrabold text-base sm:text-lg text-slate-900 group-hover:text-blue-600 transition line-clamp-1 leading-snug">
@@ -4240,16 +4231,25 @@ function CitizenDashboard() {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Photo hero if available */}
-              {selectedComplaint.photo_url && (
-                <div className="rounded-2xl overflow-hidden border border-slate-200 max-h-72 bg-slate-100">
-                  <img
-                    src={selectedComplaint.photo_url}
-                    alt={selectedComplaint.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
+              {/* Photo hero */}
+              <div className="rounded-2xl overflow-hidden border border-slate-200 max-h-72 bg-slate-100">
+                <img
+                  src={getComplaintImage(
+                    selectedComplaint.photo_url,
+                    selectedComplaint.categories?.name || selectedComplaint.category_name,
+                    selectedComplaint.title
+                  )}
+                  alt={selectedComplaint.title || "Complaint Photo"}
+                  onError={(e) =>
+                    handleImageError(
+                      e,
+                      selectedComplaint.categories?.name || selectedComplaint.category_name,
+                      selectedComplaint.title
+                    )
+                  }
+                  className="w-full h-full object-cover max-h-72"
+                />
+              </div>
 
               {/* Status & Code */}
               <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
@@ -4322,11 +4322,19 @@ function CitizenDashboard() {
                         Before (Your Reported Photo)
                       </span>
                       <img
-                        src={
-                          selectedComplaint.photo_url ||
-                          "https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=600&auto=format&fit=crop&q=80"
-                        }
+                        src={getComplaintImage(
+                          selectedComplaint.photo_url,
+                          selectedComplaint.categories?.name || selectedComplaint.category_name,
+                          selectedComplaint.title
+                        )}
                         alt="Reported Issue"
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint.categories?.name || selectedComplaint.category_name,
+                            selectedComplaint.title
+                          )
+                        }
                         className="w-full h-44 rounded-xl object-cover border border-slate-200"
                       />
                     </div>
@@ -4337,6 +4345,14 @@ function CitizenDashboard() {
                       <img
                         src={complaintEvidence.photo_url}
                         alt="Completion Evidence"
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint?.categories?.name || selectedComplaint?.category_name,
+                            selectedComplaint?.title,
+                            "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&auto=format&fit=crop&q=80"
+                          )
+                        }
                         className="w-full h-44 rounded-xl object-cover border-2 border-emerald-400 shadow-2xs"
                       />
                     </div>
@@ -4639,16 +4655,25 @@ function CitizenDashboard() {
 
             {/* Modal Body Content */}
             <div className="p-5 sm:p-7 space-y-6">
-              {/* Photo hero if available */}
-              {selectedCommunityComplaint.photo_url && (
-                <div className="rounded-2xl overflow-hidden border border-slate-200 max-h-80 bg-slate-100">
-                  <img
-                    src={selectedCommunityComplaint.photo_url}
-                    alt={selectedCommunityComplaint.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
+              {/* Photo hero */}
+              <div className="rounded-2xl overflow-hidden border border-slate-200 max-h-80 bg-slate-100">
+                <img
+                  src={getComplaintImage(
+                    selectedCommunityComplaint.photo_url,
+                    selectedCommunityComplaint.categories?.name || selectedCommunityComplaint.category_name,
+                    selectedCommunityComplaint.title
+                  )}
+                  alt={selectedCommunityComplaint.title || "Complaint Photo"}
+                  onError={(e) =>
+                    handleImageError(
+                      e,
+                      selectedCommunityComplaint.categories?.name || selectedCommunityComplaint.category_name,
+                      selectedCommunityComplaint.title
+                    )
+                  }
+                  className="w-full h-full object-cover max-h-80"
+                />
+              </div>
 
               {/* Status, Category & Priority Badges */}
               <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">

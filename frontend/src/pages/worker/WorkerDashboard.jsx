@@ -41,6 +41,12 @@ import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from "react-leaf
 import "leaflet/dist/leaflet.css";
 import NotificationBell from "../../components/NotificationBell";
 import smartCityLogo from "../../assets/smart-city-logo.png";
+import {
+  getFallbackImage,
+  isValidImageUrl,
+  getComplaintImage,
+  handleImageError,
+} from "../../utils/imageUtils";
 
 const API_BASE_URL = "https://smart-city-complaint-portal-krs3.onrender.com";
 
@@ -56,24 +62,6 @@ function WorkerMapBounds({ points }) {
 
   return null;
 }
-
-// Fallback images based on category/title
-const getFallbackImage = (categoryName = "", title = "") => {
-  const text = `${categoryName} ${title}`.toLowerCase();
-  if (text.includes("road") || text.includes("pothole")) {
-    return "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("light") || text.includes("lamp") || text.includes("electric")) {
-    return "https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("garbage") || text.includes("waste") || text.includes("trash") || text.includes("clean")) {
-    return "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&auto=format&fit=crop&q=80";
-  }
-  if (text.includes("water") || text.includes("drain") || text.includes("leak") || text.includes("pipe")) {
-    return "https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80";
-  }
-  return "https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=600&auto=format&fit=crop&q=80";
-};
 
 function WorkerDashboard() {
   const navigate = useNavigate();
@@ -1199,7 +1187,8 @@ function WorkerDashboard() {
                         {/* Thumbnail & Title Info */}
                         <div className="flex items-start gap-3.5 min-w-0 flex-1">
                           <img
-                            src={item.photo_url || getFallbackImage(item.categories?.name, item.title)}
+                            src={getComplaintImage(item.photo_url, item.categories?.name, item.title)}
+                            onError={(e) => handleImageError(e, item.categories?.name, item.title)}
                             alt={item.title}
                             className="w-16 h-16 sm:w-18 sm:h-18 rounded-xl object-cover shrink-0 border border-slate-200/80 bg-slate-100 shadow-2xs"
                           />
@@ -1391,7 +1380,8 @@ function WorkerDashboard() {
                       >
                         <div className="flex items-start gap-3.5 min-w-0 flex-1">
                           <img
-                            src={item.photo_url || getFallbackImage(item.categories?.name, item.title)}
+                            src={getComplaintImage(item.photo_url, item.categories?.name, item.title)}
+                            onError={(e) => handleImageError(e, item.categories?.name, item.title)}
                             alt={item.title}
                             className="w-16 h-16 sm:w-18 sm:h-18 rounded-xl object-cover shrink-0 border border-slate-200/80 bg-slate-100 shadow-2xs"
                           />
@@ -1574,9 +1564,14 @@ function WorkerDashboard() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={
-                            mapSelectedComplaint.photo_url ||
-                            getFallbackImage(
+                          src={getComplaintImage(
+                            mapSelectedComplaint.photo_url,
+                            mapSelectedComplaint.categories?.name,
+                            mapSelectedComplaint.title
+                          )}
+                          onError={(e) =>
+                            handleImageError(
+                              e,
                               mapSelectedComplaint.categories?.name,
                               mapSelectedComplaint.title
                             )
@@ -1666,7 +1661,8 @@ function WorkerDashboard() {
                         >
                           <div className="flex items-start gap-3.5">
                             <img
-                              src={task.photo_url || getFallbackImage(task.categories?.name, task.title)}
+                              src={getComplaintImage(task.photo_url, task.categories?.name, task.title)}
+                              onError={(e) => handleImageError(e, task.categories?.name, task.title)}
                               alt={task.title}
                               className="w-16 h-16 rounded-xl object-cover border border-slate-200"
                             />
@@ -1740,7 +1736,8 @@ function WorkerDashboard() {
                         >
                           <div className="flex items-start gap-3.5">
                             <img
-                              src={task.photo_url || getFallbackImage(task.categories?.name, task.title)}
+                              src={getComplaintImage(task.photo_url, task.categories?.name, task.title)}
+                              onError={(e) => handleImageError(e, task.categories?.name, task.title)}
                               alt={task.title}
                               className="w-16 h-16 rounded-xl object-cover border border-slate-200 opacity-90"
                             />
@@ -2212,9 +2209,17 @@ function WorkerDashboard() {
               {/* Photo Evidence Gallery */}
               <div>
                 <img
-                  src={
-                    selectedComplaint.photo_url ||
-                    getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                  src={getComplaintImage(
+                    selectedComplaint.photo_url,
+                    selectedComplaint.categories?.name,
+                    selectedComplaint.title
+                  )}
+                  onError={(e) =>
+                    handleImageError(
+                      e,
+                      selectedComplaint.categories?.name,
+                      selectedComplaint.title
+                    )
                   }
                   alt={selectedComplaint.title}
                   className="w-full h-56 sm:h-72 rounded-2xl object-cover border border-slate-200 shadow-2xs"
@@ -2315,9 +2320,17 @@ function WorkerDashboard() {
                         Before (Citizen Report)
                       </span>
                       <img
-                        src={
-                          selectedComplaint.photo_url ||
-                          getFallbackImage(selectedComplaint.categories?.name, selectedComplaint.title)
+                        src={getComplaintImage(
+                          selectedComplaint.photo_url,
+                          selectedComplaint.categories?.name,
+                          selectedComplaint.title
+                        )}
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint.categories?.name,
+                            selectedComplaint.title
+                          )
                         }
                         alt="Before Work"
                         className="w-full h-44 rounded-xl object-cover border border-slate-200"
@@ -2329,6 +2342,14 @@ function WorkerDashboard() {
                       </span>
                       <img
                         src={selectedEvidence.photo_url}
+                        onError={(e) =>
+                          handleImageError(
+                            e,
+                            selectedComplaint?.categories?.name,
+                            selectedComplaint?.title,
+                            "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&auto=format&fit=crop&q=80"
+                          )
+                        }
                         alt="After Completion Evidence"
                         className="w-full h-44 rounded-xl object-cover border border-emerald-300 shadow-2xs"
                       />
@@ -2553,13 +2574,24 @@ function WorkerDashboard() {
             {/* Form Fields */}
             <div className="p-6 space-y-4">
               {/* If resolve: Show Citizen Before Photo for reference */}
-              {actionModalType === "resolve" && actionComplaint.photo_url && (
+              {actionModalType === "resolve" && (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                     Initial Citizen Report (Before)
                   </span>
                   <img
-                    src={actionComplaint.photo_url}
+                    src={getComplaintImage(
+                      actionComplaint?.photo_url,
+                      actionComplaint?.categories?.name,
+                      actionComplaint?.title
+                    )}
+                    onError={(e) =>
+                      handleImageError(
+                        e,
+                        actionComplaint?.categories?.name,
+                        actionComplaint?.title
+                      )
+                    }
                     alt="Before work"
                     className="w-full h-28 object-cover rounded-xl border border-slate-200"
                   />
