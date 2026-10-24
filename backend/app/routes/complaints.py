@@ -3,7 +3,7 @@ from typing import Optional, List
 import uuid
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel, Field
 
 from app.config.supabase import supabase
@@ -102,6 +102,96 @@ def get_complaint_for_user(
             )
 
     return complaint
+
+
+# ============================================================
+# COMPLAINT PHOTO UPLOAD
+# ============================================================
+
+@router.post("/upload-photo")
+async def upload_complaint_photo(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_role("citizen")),
+):
+    """
+    Upload and persist complaint photo for an authenticated citizen.
+    Uses the Supabase Storage 'complaints' bucket.
+    """
+    try:
+        allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+        if file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail="Only JPG, PNG, WEBP, or GIF images are allowed.",
+            )
+
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected image file is empty.",
+            )
+
+        if len(file_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="Image file must be 10 MB or smaller.",
+            )
+
+        bucket_name = "complaints"
+        extension = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+        }[file.content_type]
+
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        random_suffix = uuid.uuid4().hex[:8]
+        file_path_in_bucket = f"{current_user['id']}/{timestamp}-{random_suffix}.{extension}"
+
+        try:
+            supabase.storage.from_(bucket_name).upload(
+                file_path_in_bucket,
+                file_bytes,
+                file_options={
+                    "content-type": file.content_type,
+                    "upsert": "true",
+                },
+            )
+        except Exception as storage_exc:
+            try:
+                supabase.storage.create_bucket(bucket_name, options={"public": True})
+                supabase.storage.from_(bucket_name).upload(
+                    file_path_in_bucket,
+                    file_bytes,
+                    file_options={
+                        "content-type": file.content_type,
+                        "upsert": "true",
+                    },
+                )
+            except Exception:
+                raise storage_exc
+
+        public_url_res = supabase.storage.from_(bucket_name).get_public_url(file_path_in_bucket)
+        public_url = (
+            public_url_res.get("publicUrl")
+            if isinstance(public_url_res, dict)
+            else str(public_url_res)
+        )
+
+        return {
+            "success": True,
+            "photo_url": public_url,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload complaint photo: {str(exc)}",
+        )
 
 
 # ============================================================

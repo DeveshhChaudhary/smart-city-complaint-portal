@@ -79,6 +79,10 @@ class ClaimStatusUpdate(BaseModel):
     admin_notes: Optional[str] = None
 
 
+class BadgeStatusUpdate(BaseModel):
+    active: bool
+
+
 class AnnouncementCreate(BaseModel):
     title: str = Field(min_length=3, max_length=160)
     message: str = Field(min_length=5, max_length=2000)
@@ -1733,6 +1737,32 @@ def update_reward_item(
         raise HTTPException(status_code=500, detail=f"Failed to update reward: {str(error)}")
 
 
+@router.delete("/rewards/catalog/{reward_id}")
+def delete_reward_item(
+    reward_id: str,
+    current_user: dict = Depends(require_role("admin")),
+):
+    """
+    Remove an existing reward item from the municipal catalog.
+    """
+    try:
+        idx = next((i for i, r in enumerate(REWARD_CATALOG) if r["id"] == reward_id), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail="Reward not found in catalog.")
+
+        deleted = REWARD_CATALOG.pop(idx)
+        return {
+            "success": True,
+            "message": f"Reward '{deleted['name']}' deleted from municipal catalog successfully.",
+            "reward_id": reward_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Admin delete reward error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to delete reward: {str(error)}")
+
+
 @router.get("/rewards/claims")
 def get_admin_reward_claims(
     current_user: dict = Depends(require_role("admin")),
@@ -1844,10 +1874,39 @@ def update_claim_status(
 
         new_status = payload.status
 
-        # Clean prior status tag
+        # Extract prior status and clean reason
         clean_reason = orig_reason
+        prior_status = "Claimed"
         if "[Status: " in orig_reason:
             clean_reason = orig_reason.split("[Status: ")[0].strip()
+            try:
+                prior_status = orig_reason.split("[Status: ")[1].split("]")[0].strip()
+            except Exception:
+                prior_status = "Claimed"
+
+        # Prevent duplicate status transitions or redundant operations
+        if prior_status == new_status:
+            return {
+                "success": True,
+                "message": f"Claim status is already '{new_status}'.",
+                "claim": {
+                    "id": claim_id,
+                    "status": new_status,
+                    "updated_reason": orig_reason,
+                }
+            }
+
+        # Terminal state guards: disallow mutating already-refunded or already-delivered claims
+        if prior_status == "Rejected":
+            raise HTTPException(
+                status_code=400,
+                detail="This claim has already been rejected and points have been refunded to the citizen."
+            )
+        if prior_status == "Delivered":
+            raise HTTPException(
+                status_code=400,
+                detail="This claim has already been fulfilled and delivered."
+            )
 
         updated_reason = f"{clean_reason} [Status: {new_status}]"
 
@@ -1893,6 +1952,7 @@ def update_claim_status(
                     "title": f"Reward Claim {new_status}",
                     "message": f"Your civic claim for '{reward_name}' (Ref: {ref_code}) has been {status_text}.",
                     "type": "reward_claim",
+                    "is_read": False,
                 }).execute()
             except Exception as ne:
                 print("Notification insert error:", ne)
@@ -2084,6 +2144,33 @@ def get_admin_badges(
     except Exception as error:
         print("Admin get badges error:", error)
         raise HTTPException(status_code=500, detail=f"Failed to fetch badges: {str(error)}")
+
+
+@router.patch("/rewards/badges/{badge_id}")
+def update_badge_status(
+    badge_id: str,
+    payload: BadgeStatusUpdate,
+    current_user: dict = Depends(require_role("admin")),
+):
+    """
+    Update a civic badge active / inactive status.
+    """
+    try:
+        badge = next((b for b in SYSTEM_CIVIC_BADGES if b["id"] == badge_id), None)
+        if not badge:
+            raise HTTPException(status_code=404, detail="Badge not found.")
+
+        badge["active"] = payload.active
+        return {
+            "success": True,
+            "message": f"Badge '{badge['title']}' is now {'Active' if payload.active else 'Inactive'}.",
+            "badge": badge,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Admin update badge error:", error)
+        raise HTTPException(status_code=500, detail=f"Failed to update badge: {str(error)}")
 
 
 @router.get("/rewards/leaderboard")

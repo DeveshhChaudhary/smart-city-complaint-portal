@@ -95,7 +95,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   CircleMarker,
   MapContainer,
@@ -178,10 +178,61 @@ function AdminDashboard() {
   const [workers, setWorkers] = useState([]);
   const [managedUsers, setManagedUsers] = useState([]);
 
+  // URL search params & deep-linking
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialNavParam = searchParams.get("tab") || "dashboard";
+
   // Active navigation section
-  const [activeNav, setActiveNav] = useState("dashboard"); // 'dashboard' | 'complaints' | 'map' | 'users' | 'workers' | 'departments' | 'analytics' | 'reports' | 'rewards' | 'announcements' | 'settings'
+  const [activeNav, setActiveNav] = useState(() => {
+    if (initialNavParam === "reports") return "analytics";
+    return initialNavParam;
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // Floating Toast Notification System
+  const [toastMessage, setToastMessage] = useState(null);
+  const toastTimeoutRef = useRef(null);
+
+  const showToast = (message, type = "info") => {
+    if (!message) return;
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToastMessage({ message, type, id: Date.now() });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleNavChange = (navId) => {
+    const target = navId === "reports" ? "analytics" : navId;
+    setActiveNav(target);
+    setMobileMenuOpen(false);
+    setSearchParams({ tab: target }, { replace: true });
+  };
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam) {
+      const resolved = tabParam === "reports" ? "analytics" : tabParam;
+      setActiveNav((prev) => (prev !== resolved ? resolved : prev));
+    }
+  }, [searchParams]);
+
+  // Analytics sub-view toggle: 'overview' (charts/kpis) | 'reports' (export/reports table)
+  const [analyticsSubTab, setAnalyticsSubTab] = useState("overview");
+  const [reportCategoryFilter, setReportCategoryFilter] = useState("All");
+  const [reportStatusFilter, setReportStatusFilter] = useState("All");
+  const [reportSearch, setReportSearch] = useState("");
 
   // Search & Filters
   const [search, setSearch] = useState("");
@@ -654,6 +705,92 @@ function AdminDashboard() {
     } finally {
       setUpdatingClaimId(null);
     }
+  };
+
+  const handleDeleteReward = async (rewardId, rewardName) => {
+    if (!window.confirm(`Are you sure you want to delete '${rewardName}' from the rewards catalog?`)) {
+      return;
+    }
+    try {
+      const res = await axios.delete(
+        `${API_BASE_URL}/api/admin/rewards/catalog/${rewardId}`,
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
+      );
+      if (res.data?.success) {
+        showToast(res.data.message || "Reward removed from catalog.", "success");
+        setShowEditRewardModal(false);
+        setEditingRewardItem(null);
+        loadRewardsData();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.detail || "Failed to delete reward.", "error");
+    }
+  };
+
+  const handleToggleBadgeStatus = async (badge) => {
+    const newActive = badge.active === false ? true : false;
+    try {
+      const res = await axios.patch(
+        `${API_BASE_URL}/api/admin/rewards/badges/${badge.id}`,
+        { active: newActive },
+        { headers: { Authorization: `Bearer ${token || localStorage.getItem("access_token")}` } }
+      );
+      if (res.data?.success) {
+        showToast(res.data.message || `Badge '${badge.title}' updated.`, "success");
+        if (selectedBadgeForDetails && selectedBadgeForDetails.id === badge.id) {
+          setSelectedBadgeForDetails((prev) => ({ ...prev, active: newActive }));
+        }
+        loadRewardsData();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.detail || "Failed to update badge status.", "error");
+    }
+  };
+
+  const handleExportCSV = (recordsToExport) => {
+    const rows = recordsToExport || complaints;
+    if (!rows || rows.length === 0) {
+      showToast("No complaint records available to export.", "error");
+      return;
+    }
+    const headers = [
+      "Complaint Code",
+      "Title",
+      "Category",
+      "Priority",
+      "Status",
+      "Citizen",
+      "Assigned Worker",
+      "Address",
+      "Created Date",
+      "Resolved Date",
+    ];
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((c) => [
+        `"${c.complaint_code || ""}"`,
+        `"${(c.title || "").replace(/"/g, '""')}"`,
+        `"${c.categories?.name || c.category_name || "General"}"`,
+        `"${c.priority || "Normal"}"`,
+        `"${c.status || "Submitted"}"`,
+        `"${c.citizen_name || c.users?.name || "Citizen"}"`,
+        `"${c.worker_name || c.workers?.users?.name || c.workers?.worker_code || "Unassigned"}"`,
+        `"${(c.address || "").replace(/"/g, '""')}"`,
+        `"${c.created_at ? new Date(c.created_at).toLocaleDateString() : ""}"`,
+        `"${c.resolved_at ? new Date(c.resolved_at).toLocaleDateString() : ""}"`,
+      ].join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `smart_city_complaints_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${rows.length} complaint records to CSV successfully!`, "success");
   };
 
 
@@ -2691,8 +2828,7 @@ function AdminDashboard() {
     { id: "users", label: "Users", icon: Users },
     { id: "workers", label: "Workers", icon: Wrench },
     { id: "departments", label: "Departments", icon: Building2 },
-    { id: "analytics", label: "Analytics", icon: BarChart3 },
-    { id: "reports", label: "Reports", icon: FileText },
+    { id: "analytics", label: "Analytics & Reports", icon: BarChart3 },
     { id: "rewards", label: "Rewards", icon: Award },
     { id: "announcements", label: "Announcements", icon: Megaphone },
     { id: "profile", label: "Admin Profile", icon: UserRound },
@@ -2729,10 +2865,7 @@ function AdminDashboard() {
           {/* Logo Brand Header */}
           <div className="p-5 flex items-center justify-between border-b border-white/10">
             <div
-              onClick={() => {
-                setActiveNav("dashboard");
-                setMobileMenuOpen(false);
-              }}
+              onClick={() => handleNavChange("dashboard")}
               className="flex items-center gap-3 cursor-pointer select-none"
             >
               <img
@@ -2761,14 +2894,11 @@ function AdminDashboard() {
           <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
             {navMenuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeNav === item.id;
+              const isActive = activeNav === item.id || (item.id === "analytics" && activeNav === "reports");
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    setActiveNav(item.id);
-                    setMobileMenuOpen(false);
-                  }}
+                  onClick={() => handleNavChange(item.id)}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
                     isActive
                       ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
@@ -3840,163 +3970,382 @@ function AdminDashboard() {
             )}
 
             {/* ============================================================ */}
-            {/* VIEW 6: ANALYTICS & REPORTS (Matches Screen 7) */}
+            {/* VIEW 6: CONSOLIDATED ANALYTICS & REPORTS */}
             {/* ============================================================ */}
-            {(activeNav === "analytics" || activeNav === "reports") && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h1 className="text-2xl font-extrabold text-slate-900">Analytics & Reports</h1>
-                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                      Comprehensive resolution breakdown and workload metrics.
-                    </p>
-                  </div>
+            {(activeNav === "analytics" || activeNav === "reports") && (() => {
+              // Compute period-filtered complaints
+              const periodCutoff = (() => {
+                if (analyticsPeriod === "all") return null;
+                const d = new Date();
+                d.setDate(d.getDate() - Number(analyticsPeriod || 30));
+                return d;
+              })();
 
-                  <select
-                    value={analyticsPeriod}
-                    onChange={(e) => setAnalyticsPeriod(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold text-slate-700 shadow-2xs"
-                  >
-                    <option value="7">Last 7 Days</option>
-                    <option value="30">Last 30 Days</option>
-                    <option value="90">Last 90 Days</option>
-                    <option value="all">All Available Data</option>
-                  </select>
-                </div>
+              const periodComplaints = complaints.filter((c) => {
+                if (!periodCutoff || !c.created_at) return true;
+                const created = new Date(c.created_at);
+                return !isNaN(created.getTime()) && created >= periodCutoff;
+              });
 
-                {/* Key KPIs Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Resolution Rate
-                    </p>
-                    <p className="text-3xl font-extrabold text-emerald-600 mt-2">
-                      {stats.resolutionRate}%
-                    </p>
-                    <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 rounded-full"
-                        style={{ width: `${stats.resolutionRate}%` }}
-                      />
+              // Dynamic Period KPIs
+              const periodTotal = periodComplaints.length;
+              const periodResolved = periodComplaints.filter((c) => c.status === "Resolved" || c.status === "Verified").length;
+              const periodPending = periodComplaints.filter((c) => c.status === "Submitted" || c.status === "Pending" || c.status === "Verified").length;
+              const periodResolutionRate = periodTotal > 0 ? Math.round((periodResolved / periodTotal) * 100) : 0;
+
+              // Filtered complaints for the Reports tab
+              const reportComplaints = periodComplaints.filter((c) => {
+                if (reportCategoryFilter !== "All" && c.categories?.name !== reportCategoryFilter) return false;
+                if (reportStatusFilter !== "All") {
+                  if (reportStatusFilter === "Pending" && !["Submitted", "Pending", "Verified"].includes(c.status)) return false;
+                  if (reportStatusFilter !== "Pending" && c.status !== reportStatusFilter) return false;
+                }
+                if (reportSearch.trim()) {
+                  const q = reportSearch.toLowerCase();
+                  const match = (c.complaint_code || "").toLowerCase().includes(q) ||
+                    (c.title || "").toLowerCase().includes(q) ||
+                    (c.description || "").toLowerCase().includes(q) ||
+                    (c.address || "").toLowerCase().includes(q) ||
+                    (c.categories?.name || "").toLowerCase().includes(q);
+                  if (!match) return false;
+                }
+                return true;
+              });
+
+              // Available categories in the dataset
+              const availableCategories = Array.from(new Set(complaints.map((c) => c.categories?.name).filter(Boolean)));
+
+              return (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                  {/* Header Banner */}
+                  <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                      <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-bold mb-3">
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          <span>Municipal Intelligence & Workload Audits</span>
+                        </div>
+                        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Analytics &amp; Reports Center</h1>
+                        <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          Comprehensive civic metrics, resolution breakdowns, category distribution, and downloadable administrative reports.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <select
+                          value={analyticsPeriod}
+                          onChange={(e) => setAnalyticsPeriod(e.target.value)}
+                          className="bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-2xl px-4 py-2.5 text-xs font-bold focus:outline-hidden"
+                        >
+                          <option value="7" className="bg-slate-900 text-white">Last 7 Days</option>
+                          <option value="30" className="bg-slate-900 text-white">Last 30 Days</option>
+                          <option value="90" className="bg-slate-900 text-white">Last 90 Days</option>
+                          <option value="all" className="bg-slate-900 text-white">All Available Data</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => handleExportCSV(reportComplaints)}
+                          className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl text-xs transition flex items-center gap-1.5 shadow-lg shadow-blue-600/30"
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>Export CSV</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mode Sub-Tabs */}
+                    <div className="flex items-center gap-2 overflow-x-auto pt-6 mt-6 border-t border-white/10 no-scrollbar">
+                      <button
+                        type="button"
+                        onClick={() => setAnalyticsSubTab("overview")}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                          analyticsSubTab === "overview"
+                            ? "bg-white text-slate-900 shadow-md"
+                            : "bg-white/10 text-slate-300 hover:bg-white/15 hover:text-white"
+                        }`}
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>Visual Analytics &amp; KPIs</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAnalyticsSubTab("reports")}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                          analyticsSubTab === "reports"
+                            ? "bg-white text-slate-900 shadow-md"
+                            : "bg-white/10 text-slate-300 hover:bg-white/15 hover:text-white"
+                        }`}
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Generate Reports &amp; Export</span>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                          analyticsSubTab === "reports" ? "bg-slate-100 text-slate-700" : "bg-white/10 text-slate-300"
+                        }`}>
+                          {periodComplaints.length}
+                        </span>
+                      </button>
                     </div>
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Avg Resolution Time
-                    </p>
-                    <p className="text-3xl font-extrabold text-blue-600 mt-2">
-                      {stats.averageResolutionHours > 0
-                        ? `${stats.averageResolutionHours.toFixed(1)} hrs`
-                        : "N/A"}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-2">Calculated from resolved reports</p>
-                  </div>
+                  {/* SUB-VIEW 1: VISUAL ANALYTICS */}
+                  {analyticsSubTab === "overview" && (
+                    <div className="space-y-6">
+                      {/* Key KPIs Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Resolution Rate</p>
+                          <p className="text-3xl font-black text-emerald-600 mt-2">{periodResolutionRate}%</p>
+                          <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${periodResolutionRate}%` }} />
+                          </div>
+                        </div>
 
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Active Field Force
-                    </p>
-                    <p className="text-3xl font-extrabold text-purple-600 mt-2">
-                      {stats.workersCount} Workers
-                    </p>
-                    <p className="text-xs text-slate-500 mt-2">Assigned across municipal sectors</p>
-                  </div>
-                </div>
+                        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Avg Resolution Time</p>
+                          <p className="text-3xl font-black text-blue-600 mt-2">
+                            {stats.averageResolutionHours > 0 ? `${stats.averageResolutionHours.toFixed(1)} hrs` : "N/A"}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-2">Calculated from verified resolutions</p>
+                        </div>
 
-                {/* Charts Row: Complaints by Category & Status Distribution (Matches Screen 7) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Category Bar Chart */}
-                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
-                    <h3 className="font-extrabold text-base text-slate-900">Complaints by Category</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Total counts by municipal department</p>
-                    <div className="h-64 mt-4">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={categoryChartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip />
-                          <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]}>
-                            {categoryChartData.map((entry, index) => (
-                              <Cell key={`bar-${index}`} fill={getCategoryColor(index)} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+                        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Field Force</p>
+                          <p className="text-3xl font-black text-purple-600 mt-2">{stats.workersCount} Workers</p>
+                          <p className="text-xs text-slate-500 mt-2">Assigned across municipal divisions</p>
+                        </div>
 
-                  {/* Status Distribution (Donut Chart) */}
-                  <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
-                    <h3 className="font-extrabold text-base text-slate-900">Status Distribution</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Lifecycle distribution metrics</p>
-                    <div className="flex flex-col sm:flex-row items-center gap-6 mt-4">
-                      <div className="relative w-48 h-48 shrink-0 flex items-center justify-center">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={statusChartData}
-                              dataKey="value"
-                              nameKey="name"
-                              innerRadius={55}
-                              outerRadius={80}
-                              paddingAngle={4}
-                            >
-                              {statusChartData.map((entry, index) => (
-                                <Cell key={`status-pie-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                          <span className="text-2xl font-extrabold text-slate-900">{stats.total}</span>
-                          <span className="text-[11px] font-bold text-slate-400">Total</span>
+                        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Period Complaints</p>
+                          <p className="text-3xl font-black text-slate-900 mt-2">{periodTotal}</p>
+                          <p className="text-xs text-slate-500 mt-2">{periodPending} pending fulfillment</p>
                         </div>
                       </div>
 
-                      <div className="flex-1 space-y-3 w-full">
-                        {statusChartData.map((item) => {
-                          const pct = stats.total > 0 ? Math.round((item.value / stats.total) * 100) : 0;
-                          return (
-                            <div key={item.name} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                                <span className="font-semibold text-slate-700">{item.name}</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-bold text-slate-900">{item.value}</span>
-                                <span className="text-slate-400 ml-1">({pct}%)</span>
+                      {/* Charts Row */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Category Bar Chart */}
+                        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                          <h3 className="font-extrabold text-base text-slate-900">Complaints by Category</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">Distribution across civic departments</p>
+                          <div className="h-64 mt-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={categoryChartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
+                                <Tooltip />
+                                <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]}>
+                                  {categoryChartData.map((entry, index) => (
+                                    <Cell key={`bar-${index}`} fill={getCategoryColor(index)} />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+
+                        {/* Status Distribution (Donut Chart) */}
+                        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                          <h3 className="font-extrabold text-base text-slate-900">Status Distribution</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">Complaint lifecycle progression</p>
+                          <div className="flex flex-col sm:flex-row items-center gap-6 mt-4">
+                            <div className="relative w-48 h-48 shrink-0 flex items-center justify-center">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={statusChartData}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    innerRadius={55}
+                                    outerRadius={80}
+                                    paddingAngle={4}
+                                  >
+                                    {statusChartData.map((entry, index) => (
+                                      <Cell key={`status-pie-${index}`} fill={entry.color} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span className="text-2xl font-black text-slate-900">{stats.total}</span>
+                                <span className="text-[11px] font-bold text-slate-400">Total</span>
                               </div>
                             </div>
-                          );
-                        })}
+
+                            <div className="flex-1 space-y-3 w-full">
+                              {statusChartData.map((item) => {
+                                const pct = stats.total > 0 ? Math.round((item.value / stats.total) * 100) : 0;
+                                return (
+                                  <div key={item.name} className="flex items-center justify-between text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                                      <span className="font-semibold text-slate-700">{item.name}</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="font-bold text-slate-900">{item.value}</span>
+                                      <span className="text-slate-400 ml-1">({pct}%)</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Worker Workload Breakdown */}
+                      <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
+                        <h3 className="font-extrabold text-base text-slate-900">Worker Allocation &amp; Resolution Ratio</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Assigned vs Resolved complaints per field worker</p>
+                        <div className="h-64 mt-4">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={workerWorkloadData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
+                              <Tooltip />
+                              <Legend />
+                              <Bar dataKey="assigned" name="Assigned" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="resolved" name="Resolved" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  )}
 
-                {/* Worker Workload Breakdown */}
-                <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs">
-                  <h3 className="font-extrabold text-base text-slate-900">Worker Workload Overview</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Assigned vs Resolved complaints per worker</p>
-                  <div className="h-64 mt-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={workerWorkloadData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} allowDecimals={false} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="assigned" name="Assigned" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="resolved" name="Resolved" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  {/* SUB-VIEW 2: GENERATE REPORTS & DATA EXPORT */}
+                  {analyticsSubTab === "reports" && (
+                    <div className="space-y-6">
+                      {/* Controls Filter Bar */}
+                      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                          <div className="relative flex-1 max-w-sm">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Filter reports by code, title, address..."
+                              value={reportSearch}
+                              onChange={(e) => setReportSearch(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                            />
+                          </div>
+
+                          <select
+                            value={reportCategoryFilter}
+                            onChange={(e) => setReportCategoryFilter(e.target.value)}
+                            className="px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="All">All Categories</option>
+                            {availableCategories.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+
+                          <select
+                            value={reportStatusFilter}
+                            onChange={(e) => setReportStatusFilter(e.target.value)}
+                            className="px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="All">All Statuses</option>
+                            <option value="Pending">Pending / Unresolved</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Resolved">Resolved</option>
+                            <option value="Verified">Verified</option>
+                            <option value="Rejected">Rejected</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => window.print()}
+                            className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Print Summary</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleExportCSV(reportComplaints)}
+                            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Download CSV ({reportComplaints.length})</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Report Table */}
+                      {reportComplaints.length === 0 ? (
+                        <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center shadow-xs">
+                          <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                          <h3 className="font-extrabold text-slate-900 text-sm">No complaint records match report filters</h3>
+                          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                            Try broadening your date range or adjusting category and status filters.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
+                                  <th className="py-3.5 px-4">Code</th>
+                                  <th className="py-3.5 px-4">Complaint Title</th>
+                                  <th className="py-3.5 px-3">Category</th>
+                                  <th className="py-3.5 px-3">Priority</th>
+                                  <th className="py-3.5 px-3 text-center">Status</th>
+                                  <th className="py-3.5 px-3">Assigned Worker</th>
+                                  <th className="py-3.5 px-4 text-right">Reported Date</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                {reportComplaints.map((item) => (
+                                  <tr key={item.id} className="hover:bg-slate-50/70 transition">
+                                    <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                                      {item.complaint_code || "N/A"}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-bold text-slate-900 max-w-xs truncate">
+                                      {item.title}
+                                    </td>
+                                    <td className="py-3.5 px-3 text-slate-600">
+                                      {item.categories?.name || "General"}
+                                    </td>
+                                    <td className="py-3.5 px-3">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        item.priority === "Critical" ? "bg-red-100 text-red-800" :
+                                        item.priority === "High" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                                      }`}>
+                                        {item.priority || "Normal"}
+                                      </span>
+                                    </td>
+                                    <td className="py-3.5 px-3 text-center">
+                                      {getStatusBadge(item.status)}
+                                    </td>
+                                    <td className="py-3.5 px-3 text-slate-600">
+                                      {getWorkerDisplayName(item)}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-right text-slate-500 text-[11px] whitespace-nowrap">
+                                      {formatDate(item.created_at)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ============================================================ */}
             {/* VIEW 7: DEPARTMENTS, REWARDS, ANNOUNCEMENTS, SETTINGS */}
@@ -4486,6 +4835,28 @@ function AdminDashboard() {
                   </div>
                 </div>
 
+                {rewardsLoading && !rewardsOverview && rewardsCatalog.length === 0 ? (
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center shadow-xs">
+                    <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" />
+                    <h3 className="text-base font-bold text-slate-800">Loading Rewards Data...</h3>
+                    <p className="text-xs text-slate-500 mt-1">Retrieving civic catalog, claims, ledger, and badges</p>
+                  </div>
+                ) : !rewardsLoading && !rewardsOverview && rewardsCatalog.length === 0 ? (
+                  <div className="bg-white border border-slate-200/90 rounded-3xl p-12 text-center shadow-xs">
+                    <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+                    <h3 className="text-base font-bold text-slate-800">Failed to Load Rewards Data</h3>
+                    <p className="text-xs text-slate-500 mt-1 mb-4">Could not retrieve municipal rewards data from the server.</p>
+                    <button
+                      type="button"
+                      onClick={() => loadRewardsData()}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Retry</span>
+                    </button>
+                  </div>
+                ) : (
+                  <>
                 {/* ============================================================ */}
                 {/* 1. OVERVIEW TAB */}
                 {/* ============================================================ */}
@@ -5274,14 +5645,27 @@ function AdminDashboard() {
                               <span className="text-base font-black text-slate-900">{badge.earned_count || 0}</span>
                               <span className="text-[11px] text-slate-500 font-medium ml-1">citizens earned</span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedBadgeForDetails(badge)}
-                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>Details</span>
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleBadgeStatus(badge)}
+                                className={`px-2 py-1.5 rounded-xl text-[11px] font-bold transition ${
+                                  badge.active === false
+                                    ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                                    : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                }`}
+                              >
+                                {badge.active === false ? "Activate" : "Deactivate"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBadgeForDetails(badge)}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Details</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -5506,6 +5890,8 @@ function AdminDashboard() {
                       )}
                     </div>
                   </div>
+                )}
+                  </>
                 )}
               </div>
             )}
@@ -9642,6 +10028,16 @@ function AdminDashboard() {
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                {showEditRewardModal && editingRewardItem && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteReward(editingRewardItem.id, editingRewardItem.name)}
+                    className="mr-auto px-3.5 py-2 border border-rose-200 text-rose-700 hover:bg-rose-50 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -9976,7 +10372,18 @@ function AdminDashboard() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => handleToggleBadgeStatus(selectedBadgeForDetails)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  selectedBadgeForDetails.active === false
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+              >
+                {selectedBadgeForDetails.active === false ? "Activate Badge" : "Deactivate Badge"}
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedBadgeForDetails(null)}
@@ -10386,6 +10793,34 @@ function AdminDashboard() {
         </div>
       )}
 
+      {/* Floating Toast Notification Container */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-[9999] animate-in slide-in-from-bottom-5 fade-in duration-200">
+          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl text-xs font-bold border backdrop-blur-md ${
+            toastMessage.type === "success"
+              ? "bg-emerald-900/90 text-white border-emerald-500/50"
+              : toastMessage.type === "error"
+              ? "bg-rose-900/90 text-white border-rose-500/50"
+              : "bg-slate-900/90 text-white border-slate-700/50"
+          }`}>
+            {toastMessage.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : toastMessage.type === "error" ? (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-blue-400 shrink-0" />
+            )}
+            <span className="max-w-sm">{toastMessage.message}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 text-white/70 hover:text-white rounded-lg hover:bg-white/10 ml-2"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -177,11 +177,45 @@ function CreateComplaint() {
         return;
       }
 
+      let uploadedPhotoUrl = null;
+      if (photo && photo instanceof File) {
+        try {
+          const uploadData = new FormData();
+          uploadData.append("file", photo);
+
+          const uploadResponse = await axios.post(
+            `${API_BASE_URL}/api/complaints/upload-photo`,
+            uploadData,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          if (uploadResponse.data?.photo_url) {
+            uploadedPhotoUrl = uploadResponse.data.photo_url;
+          }
+        } catch (uploadErr) {
+          console.error("Photo upload error:", uploadErr);
+          const confirmWithoutPhoto = window.confirm(
+            "Could not upload the selected photo. Would you like to submit the complaint without the photo?"
+          );
+          if (!confirmWithoutPhoto) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      } else if (typeof photo === "string" && (photo.startsWith("http://") || photo.startsWith("https://"))) {
+        uploadedPhotoUrl = photo.trim();
+      }
+
       const complaintData = {
         title: formData.title.trim(),
         description: formData.description.trim(),
         category_id: formData.category || null,
-        photo_url: photo ? photo.name : null,
+        photo_url: uploadedPhotoUrl,
         latitude: Number(location.latitude),
         longitude: Number(location.longitude),
         address: location.address ? location.address.trim() : null,
@@ -335,24 +369,46 @@ function CreateComplaint() {
               </p>
             </div>
 
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 p-8 transition hover:border-blue-400 hover:bg-blue-50">
-              <Camera size={32} className="mb-3 text-blue-600" />
-              <span className="font-semibold text-slate-700">
-                {photo ? photo.name : "Click to upload a photo"}
-              </span>
-              <span className="mt-1 text-xs text-slate-400">
-                JPG, PNG or WEBP
-              </span>
+            {photo ? (
+              <div className="relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/20 p-6">
+                <img
+                  src={URL.createObjectURL(photo)}
+                  alt="Complaint preview"
+                  className="max-h-56 rounded-xl object-contain shadow-sm mb-3"
+                />
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-slate-700 truncate max-w-xs">
+                    {photo.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPhoto(null)}
+                    className="text-xs text-red-600 hover:text-red-700 font-medium px-2.5 py-1 rounded-lg border border-red-200 hover:bg-red-50 transition"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 p-8 transition hover:border-blue-400 hover:bg-blue-50">
+                <Camera size={32} className="mb-3 text-blue-600" />
+                <span className="font-semibold text-slate-700">
+                  Click to upload a photo
+                </span>
+                <span className="mt-1 text-xs text-slate-400">
+                  JPG, PNG, WEBP, or GIF (max 10MB)
+                </span>
 
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                  setPhoto(event.target.files?.[0] || null);
-                }}
-              />
-            </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(event) => {
+                    setPhoto(event.target.files?.[0] || null);
+                  }}
+                />
+              </label>
+            )}
           </section>
 
           {/* Location */}
